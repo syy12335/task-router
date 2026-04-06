@@ -8,6 +8,7 @@ import yaml
 from langgraph.graph import END, START, StateGraph
 from typing_extensions import TypedDict
 
+from .agents.common import build_round_records_payload
 from .llm import build_chat_model
 from .nodes import accutest_node, functest_node, normal_node, perftest_node, route_node, update_node
 from .schema import ControllerAction, Environment, Output, Task, to_dict
@@ -141,7 +142,7 @@ class TaskRouterGraph:
         )
 
         write_json(run_dir / "input.json", {"case_id": case_id, "user_input": user_input})
-        write_json(run_dir / "rounds.json", [to_dict(round_item) for round_item in env.rounds])
+        write_json(run_dir / "rounds.json", build_round_records_payload(env.rounds))
         write_json(run_dir / "tasks.json", [to_dict(round_item.task) for round_item in env.rounds])
         write_json(run_dir / "output.json", to_dict(output))
 

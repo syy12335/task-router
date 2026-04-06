@@ -10,7 +10,7 @@ from .agents import (
     run_normal_task,
     run_perftest_task,
 )
-from .agents.common import build_rounds_context
+from .agents.common import build_rounds_observation_view
 from .schema import ControllerAction, Environment, RoundRecord, Task
 
 
@@ -93,8 +93,15 @@ def route_node(
     run_root: Path,
     max_steps: int,
 ) -> tuple[Task, list[ControllerAction]]:
-    # 将 rounds 压缩为模型可消费的上下文，并执行 controller agent loop。
-    rounds_context = build_rounds_context(environment.rounds)
+    # 默认观测视图不暴露 controller_trace，避免策略泄漏与机械继承。
+    rounds_context = build_rounds_observation_view(
+        environment.rounds,
+        round_limit=5,
+        include_user_input=True,
+        include_task=True,
+        include_reply=True,
+        include_trace=False,
+    )
     observe_tools = _build_observe_tools(workspace_root=workspace_root, run_root=run_root)
 
     route_result = route_task(
@@ -120,8 +127,15 @@ def normal_node(
     environment: Environment,
     task: Task,
 ) -> tuple[Task, str]:
-    # normal 任务走 normal-agent，使用 normal skills index 做约束。
-    rounds_context = build_rounds_context(environment.rounds)
+    # normal 也读取默认观测视图，不默认暴露 controller_trace。
+    rounds_context = build_rounds_observation_view(
+        environment.rounds,
+        round_limit=5,
+        include_user_input=True,
+        include_task=True,
+        include_reply=True,
+        include_trace=False,
+    )
     result = run_normal_task(
         llm=llm,
         system_prompt=normal_system,
@@ -163,7 +177,7 @@ def update_node(
     task: Task,
     reply: str,
 ) -> Environment:
-    # 每轮持久化 controller_trace + task + reply，供下一轮继续观察。
+    # 持久化本轮完整记录；默认观测视图是否暴露 trace 由上层参数控制。
     environment.rounds.append(
         RoundRecord(
             round=len(environment.rounds) + 1,
