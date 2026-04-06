@@ -1,6 +1,6 @@
 # task-router-graph
 
-一个用于教学的 Task Router Graph 示例项目，核心流程为：
+一个用于教学的 Task Router Graph 示例项目，基于 LangGraph，核心流程为：
 
 `observe -> route -> execute -> update`
 

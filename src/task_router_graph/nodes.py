@@ -14,11 +14,11 @@ def observe_node(environment: Environment, user_input: str) -> Action:
 
 def route_node(user_input: str) -> Task:
     lowered = user_input.lower()
-    if any(token in lowered for token in ("functest", "功能测试", "functional test")):
+    if any(token in lowered for token in ("functest", "functional test")) or ("\u529f\u80fd\u6d4b\u8bd5" in user_input):
         return Task(type="functest", content=f"Execute functest for: {user_input}")
-    if any(token in lowered for token in ("accutest", "精度测试", "accuracy test")):
+    if any(token in lowered for token in ("accutest", "accuracy test")) or ("\u7cbe\u5ea6\u6d4b\u8bd5" in user_input):
         return Task(type="accutest", content=f"Execute accutest for: {user_input}")
-    if any(token in lowered for token in ("perftest", "性能测试", "performance test")):
+    if any(token in lowered for token in ("perftest", "performance test")) or ("\u6027\u80fd\u6d4b\u8bd5" in user_input):
         return Task(type="perftest", content=f"Execute perftest for: {user_input}")
     return Task(type="normal", content=user_input)
 

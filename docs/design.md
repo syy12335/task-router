@@ -8,7 +8,7 @@
 
 主流程固定为：
 
-`observe -> route -> execute -> update`
+`observe -> route -> execute -> update`（由 LangGraph StateGraph 编排）
 
 - `observe`：读取当前环境（rounds）并形成观察动作
 - `route`：将输入路由到一个 task 类型
