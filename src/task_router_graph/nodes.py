@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+from typing import Any
+
+from .agents import route_task, run_normal_task
+from .agents.common import build_memory_summary
 from .schema import Action, Environment, RoundRecord, Task
 
 
@@ -12,22 +16,29 @@ def observe_node(environment: Environment, user_input: str) -> Action:
     )
 
 
-def route_node(user_input: str) -> Task:
-    lowered = user_input.lower()
-    if any(token in lowered for token in ("functest", "functional test")) or ("\u529f\u80fd\u6d4b\u8bd5" in user_input):
-        return Task(type="functest", content=f"Execute functest for: {user_input}")
-    if any(token in lowered for token in ("accutest", "accuracy test")) or ("\u7cbe\u5ea6\u6d4b\u8bd5" in user_input):
-        return Task(type="accutest", content=f"Execute accutest for: {user_input}")
-    if any(token in lowered for token in ("perftest", "performance test")) or ("\u6027\u80fd\u6d4b\u8bd5" in user_input):
-        return Task(type="perftest", content=f"Execute perftest for: {user_input}")
-    return Task(type="normal", content=user_input)
+def route_node(*, llm: Any, controller_system: str, environment: Environment, user_input: str) -> Task:
+    memory_summary = build_memory_summary(environment.rounds)
+    route_result = route_task(
+        llm=llm,
+        system_prompt=controller_system,
+        user_input=user_input,
+        memory_summary=memory_summary,
+    )
+    return Task(type=route_result["task_type"], content=route_result["task_content"])
 
 
-def execute_node(task: Task) -> tuple[Task, str]:
+def execute_node(*, llm: Any, normal_system: str, environment: Environment, task: Task) -> tuple[Task, str]:
     if task.type == "normal":
-        task.status = "done"
-        task.result = "normal task completed"
-        return task, f"[normal] {task.content}"
+        memory_summary = build_memory_summary(environment.rounds)
+        result = run_normal_task(
+            llm=llm,
+            system_prompt=normal_system,
+            task_content=task.content,
+            memory_summary=memory_summary,
+        )
+        task.status = result["task_status"]
+        task.result = result["task_result"]
+        return task, result["reply"]
 
     if task.type == "functest":
         task.status = "done"

@@ -4,6 +4,8 @@
 
 `observe -> route -> execute -> update`
 
+其中 `route` 和 `normal execute` 已通过 LangChain 接入真实 LLM 节点。
+
 ## 目录
 
 - `configs/graph.yaml`: 运行配置
@@ -12,7 +14,7 @@
 - `scripts/run_demo.py`: 单 case 运行
 - `scripts/eval_cases.py`: 批量 case 运行
 - `app/streamlit_app.py`: Streamlit 可视化入口
-- `src/task_router_graph/*`: graph、nodes、schema、utils、prompt（仅 system 直注入）、skills
+- `src/task_router_graph/*`: graph、nodes、schema、utils、prompt（system 直注入）、skills、agents
 
 ## 运行
 
@@ -27,4 +29,4 @@ streamlit run app/streamlit_app.py
 
 1. 先看 `docs/design.md`
 2. 再看 `docs/data_format.md`
-3. 最后看 `src/task_router_graph/nodes.py` 和 `src/task_router_graph/graph.py`
+3. 最后看 `src/task_router_graph/agents`、`nodes.py` 和 `graph.py`

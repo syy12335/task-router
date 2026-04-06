@@ -7,6 +7,7 @@ import yaml
 from langgraph.graph import END, START, StateGraph
 from typing_extensions import TypedDict
 
+from .llm import build_chat_model
 from .nodes import execute_node, observe_node, route_node, update_node
 from .schema import Action, Environment, Output, Task, to_dict
 from .utils import read_json, timestamp_tag, write_json
@@ -26,6 +27,9 @@ class TaskRouterGraph:
         self.root = Path(__file__).resolve().parents[2]
         self.config_path = (self.root / config_path).resolve() if not Path(config_path).is_absolute() else Path(config_path)
         self.config = yaml.safe_load(self.config_path.read_text(encoding="utf-8"))
+        self._llm = build_chat_model(self.config)
+        self._controller_system = self._load_prompt("src/task_router_graph/prompt/controller/system.md")
+        self._normal_system = self._load_prompt("src/task_router_graph/prompt/normal/system.md")
         self._compiled_graph = self._build_graph()
 
     def _build_graph(self) -> Any:
@@ -50,11 +54,21 @@ class TaskRouterGraph:
         return {"action": action}
 
     def _route_step(self, state: GraphState) -> GraphState:
-        task = route_node(state["user_input"])
+        task = route_node(
+            llm=self._llm,
+            controller_system=self._controller_system,
+            environment=state["environment"],
+            user_input=state["user_input"],
+        )
         return {"task": task}
 
     def _execute_step(self, state: GraphState) -> GraphState:
-        task, reply = execute_node(state["task"])
+        task, reply = execute_node(
+            llm=self._llm,
+            normal_system=self._normal_system,
+            environment=state["environment"],
+            task=state["task"],
+        )
         return {"task": task, "reply": reply}
 
     def _update_step(self, state: GraphState) -> GraphState:
@@ -108,3 +122,7 @@ class TaskRouterGraph:
         run_dir = run_root / f"run_{timestamp_tag()}"
         run_dir.mkdir(parents=True, exist_ok=True)
         return run_dir
+
+    def _load_prompt(self, relative_path: str) -> str:
+        prompt_path = (self.root / relative_path).resolve()
+        return prompt_path.read_text(encoding="utf-8").strip()

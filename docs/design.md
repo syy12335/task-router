@@ -11,29 +11,29 @@
 `observe -> route -> execute -> update`（由 LangGraph StateGraph 编排）
 
 - `observe`：读取当前环境（rounds）并形成观察动作
-- `route`：将输入路由到一个 task 类型
-- `execute`：执行对应 task 的处理逻辑
+- `route`：将输入路由到一个 task 类型（由 controller-agent 决策）
+- `execute`：执行对应 task 的处理逻辑（normal 由 normal-agent 执行）
 - `update`：回写本轮记录并生成最终 output
 
 ## 3. Controller 路由策略
 
-当前使用关键词路由（教学版）：
+当前路由由 LangChain + LLM 执行，system prompt 位于：
 
-- `functest` / `功能测试` -> `functest`
-- `accutest` / `精度测试` -> `accutest`
-- `perftest` / `性能测试` -> `perftest`
-- 其他输入 -> `normal`
+- `src/task_router_graph/prompt/controller/system.md`
 
-策略要求：
+输出必须遵循结构化 JSON：
 
-1. 单轮只产出一个 task
-2. task 内容可执行、可读
-3. 输出结构固定，便于追踪和后续扩展
+- `task_type`
+- `task_content`
+- `reason`
 
 ## 4. 文件映射
 
-- `src/task_router_graph/graph.py`：流程编排
-- `src/task_router_graph/nodes.py`：节点实现
+- `src/task_router_graph/graph.py`：LangGraph 编排入口
+- `src/task_router_graph/nodes.py`：observe/route/execute/update 节点
+- `src/task_router_graph/agents/controller_agent.py`：路由 agent
+- `src/task_router_graph/agents/normal_agent.py`：normal 执行 agent
+- `src/task_router_graph/llm.py`：LangChain ChatOpenAI 初始化
 - `src/task_router_graph/schema.py`：Environment / Task / Action / Output
-- `src/task_router_graph/prompt/*`：仅保存可直接注入的 `system` 提示词
+- `src/task_router_graph/prompt/*`：system prompt（直注入）
 - `src/task_router_graph/skills/*`：skills index 与路由参考
