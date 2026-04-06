@@ -15,17 +15,24 @@
 - `execute`：执行对应 task 的处理逻辑（normal 由 normal-agent 执行）
 - `update`：回写本轮记录并生成最终 output
 
-## 3. Controller 路由策略
+## 3. Prompt + Skills 注入策略
 
-当前路由由 LangChain + LLM 执行，system prompt 位于：
+当前路由与执行由 LangChain + LLM 驱动，采用分层注入：
 
-- `src/task_router_graph/prompt/controller/system.md`
+- `prompt/*/system.md`：稳定策略层（Objective / Behavior / Output / Constraints）
+- `skills/*/INDEX.md`：task taxonomy、触发边界、模板与规则
+- `skills/controller/*.md`：controller 任务 reference（normal/functest/accutest/perftest）
 
-输出必须遵循结构化 JSON：
+约束原则：
+- `system` 只描述策略与输出契约，不承载具体路由判定规则。
+- 具体 task 判定边界与默认策略只在 `skills` 中定义。
 
-- `task_type`
-- `task_content`
-- `reason`
+运行时输入方式：
+
+1. controller 加载 `system.md` 作为纯策略层
+2. controller 通过 `INPUT_JSON` 注入 `user_input + rounds + skills_index`
+3. `skills_index` 由 `skills/controller/INDEX.md` 及其引用的 reference 文件组装
+4. agent 仅按输入 JSON 与 system 约束输出结构化结果
 
 ## 4. 文件映射
 
@@ -35,5 +42,5 @@
 - `src/task_router_graph/agents/normal_agent.py`：normal 执行 agent
 - `src/task_router_graph/llm.py`：LangChain ChatOpenAI 初始化
 - `src/task_router_graph/schema.py`：Environment / Task / Action / Output
-- `src/task_router_graph/prompt/*`：system prompt（直注入）
-- `src/task_router_graph/skills/*`：skills index 与路由参考
+- `src/task_router_graph/prompt/*`：agent system（稳定策略）
+- `src/task_router_graph/skills/*`：skills index 与 reference（运行时注入）

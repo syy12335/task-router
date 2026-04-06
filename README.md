@@ -4,7 +4,7 @@
 
 `observe -> route -> execute -> update`
 
-其中 `route` 和 `normal execute` 已通过 LangChain 接入真实 LLM 节点。
+其中 `route` 和 `normal execute` 已通过 LangChain 接入真实 LLM 节点；controller 在运行时通过 JSON 输入注入 `rounds` 与 `skills_index`。
 
 ## 目录
 
@@ -14,7 +14,7 @@
 - `scripts/run_demo.py`: 单 case 运行
 - `scripts/eval_cases.py`: 批量 case 运行
 - `app/streamlit_app.py`: Streamlit 可视化入口
-- `src/task_router_graph/*`: graph、nodes、schema、utils、prompt（system 直注入）、skills、agents
+- `src/task_router_graph/*`: graph、nodes、schema、utils、prompt（system）、skills（运行时注入）、agents
 
 ## 运行
 

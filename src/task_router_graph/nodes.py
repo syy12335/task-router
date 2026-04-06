@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from .agents import route_task, run_normal_task
-from .agents.common import build_memory_summary
+from .agents.common import build_memory_summary, build_rounds_context
 from .schema import Action, Environment, RoundRecord, Task
 
 
@@ -16,13 +16,21 @@ def observe_node(environment: Environment, user_input: str) -> Action:
     )
 
 
-def route_node(*, llm: Any, controller_system: str, environment: Environment, user_input: str) -> Task:
-    memory_summary = build_memory_summary(environment.rounds)
+def route_node(
+    *,
+    llm: Any,
+    controller_system: str,
+    controller_skills_index: str,
+    environment: Environment,
+    user_input: str,
+) -> Task:
+    rounds_context = build_rounds_context(environment.rounds)
     route_result = route_task(
         llm=llm,
         system_prompt=controller_system,
         user_input=user_input,
-        memory_summary=memory_summary,
+        rounds=rounds_context,
+        skills_index=controller_skills_index,
     )
     return Task(type=route_result["task_type"], content=route_result["task_content"])
 

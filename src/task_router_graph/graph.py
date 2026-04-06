@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Any
 
@@ -30,6 +31,7 @@ class TaskRouterGraph:
         self._llm = build_chat_model(self.config)
         self._controller_system = self._load_prompt("src/task_router_graph/prompt/controller/system.md")
         self._normal_system = self._load_prompt("src/task_router_graph/prompt/normal/system.md")
+        self._controller_skills_index = self._load_skill_bundle("src/task_router_graph/skills/controller/INDEX.md")
         self._compiled_graph = self._build_graph()
 
     def _build_graph(self) -> Any:
@@ -57,6 +59,7 @@ class TaskRouterGraph:
         task = route_node(
             llm=self._llm,
             controller_system=self._controller_system,
+            controller_skills_index=self._controller_skills_index,
             environment=state["environment"],
             user_input=state["user_input"],
         )
@@ -124,5 +127,42 @@ class TaskRouterGraph:
         return run_dir
 
     def _load_prompt(self, relative_path: str) -> str:
-        prompt_path = (self.root / relative_path).resolve()
-        return prompt_path.read_text(encoding="utf-8").strip()
+        return self._resolve(relative_path).read_text(encoding="utf-8").strip()
+
+    def _load_skill_bundle(self, skill_index_path: str) -> str:
+        index_path = self._resolve(skill_index_path)
+        index_text = index_path.read_text(encoding="utf-8").strip()
+
+        sections: list[str] = [
+            "### Skill Index",
+            index_text,
+        ]
+        for relative_ref in self._extract_skill_refs(index_text):
+            ref_path = self._resolve_skill_ref(index_path.parent, relative_ref)
+            if not ref_path.exists():
+                continue
+            sections.extend(
+                [
+                    f"### Skill Reference: {relative_ref}",
+                    ref_path.read_text(encoding="utf-8").strip(),
+                ]
+            )
+        return "\n\n".join(sections).strip()
+
+    def _extract_skill_refs(self, index_text: str) -> list[str]:
+        refs = re.findall(r"`([^`]+\.md)`", index_text)
+        seen: set[str] = set()
+        ordered_refs: list[str] = []
+        for ref in refs:
+            if ref not in seen:
+                seen.add(ref)
+                ordered_refs.append(ref)
+        return ordered_refs
+
+    def _resolve_skill_ref(self, index_dir: Path, relative_ref: str) -> Path:
+        if "/" in relative_ref or "\\" in relative_ref:
+            return self._resolve(relative_ref)
+        return (index_dir / relative_ref).resolve()
+
+    def _resolve(self, relative_path: str) -> Path:
+        return (self.root / relative_path).resolve()

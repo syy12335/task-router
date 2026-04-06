@@ -49,3 +49,19 @@ def build_memory_summary(rounds: list[Any]) -> str:
             f"task_result={round_item.task.result}"
         )
     return "\n".join(lines)
+
+
+def build_rounds_context(rounds: list[Any], limit: int = 5) -> list[dict[str, Any]]:
+    context: list[dict[str, Any]] = []
+    for round_item in rounds[-limit:]:
+        context.append(
+            {
+                "round": round_item.round,
+                "user_input": round_item.user_input,
+                "task_type": round_item.task.type,
+                "task_status": round_item.task.status,
+                "task_result": round_item.task.result,
+                "reply": round_item.reply,
+            }
+        )
+    return context

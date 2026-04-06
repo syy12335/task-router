@@ -1,5 +1,39 @@
-# Funtest Task
+﻿# Funtest Task Reference
 
-定位：功能测试任务。  
-常见情况：用户要求执行某版本功能测试，并输出通过/失败与失败原因。  
-Reference：functest workflow、assertion report。
+本文件说明 controller 何时应将请求路由为 `functest`，以及如何生成稳定的 `task_content`。
+
+## 适用范围
+
+当本轮目标是验证功能正确性时，使用 `functest`。
+
+典型关注点包括：
+
+- headers 是否正确
+- body 是否符合协议
+- assert 是否通过
+- 返回结构是否满足要求
+- 接口行为是否符合预期
+
+## 不应使用 `functest` 的情况
+
+以下情况应回到 `normal`：
+
+- 解释上一次 functest 的结果
+- 总结 functest 失败原因
+- 查阅历史 functest 报告
+- 指导用户如何配置 functest
+
+## `task_content` 生成原则
+
+1. 明确测试对象。
+2. 明确测试目标。
+3. 明确核心关注点。
+4. 不写具体文件路径。
+5. 不写实现细节。
+6. 不写结果。
+
+## 推荐模板
+
+- 针对 `{对象}` 执行功能测试，重点检查 `{关注点}`
+- 基于现有配置执行功能测试，重点验证 `{关注点}`
+- 对目标请求执行功能正确性检查，重点关注 `{关注点}`
