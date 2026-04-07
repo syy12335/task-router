@@ -18,6 +18,7 @@ def main() -> None:
     output_dir = PROJECT_ROOT / "data" / "outputs"
     output_dir.mkdir(parents=True, exist_ok=True)
 
+    # 批量执行所有 case，并保存每个 case 的 output 摘要。
     for case_file in sorted(cases_dir.glob("*.json")):
         result = graph.run_case(case_file)
         output_path = output_dir / f"{case_file.stem}_output.json"

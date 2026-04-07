@@ -1,10 +1,11 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import json
 from typing import Any
 
 
 def extract_text(content: Any) -> str:
+    # 兼容不同 LLM SDK 的 content 结构，统一提取为纯文本。
     if isinstance(content, str):
         return content.strip()
     if isinstance(content, list):
@@ -27,6 +28,7 @@ def parse_json_object(text: str) -> dict[str, Any]:
     return payload
 
 
+# TODO(env-refactor): 该视图应迁移为 Environment.build_observation_view(...)
 def build_rounds_observation_view(
     rounds: list[Any],
     *,
@@ -58,6 +60,7 @@ def build_rounds_observation_view(
     return payload
 
 
+# TODO(env-refactor): 全量序列化也应迁移为 Environment.to_dict()/export_rounds(...)
 def build_round_records_payload(rounds: list[Any]) -> list[dict[str, Any]]:
     payload: list[dict[str, Any]] = []
     for round_item in rounds:

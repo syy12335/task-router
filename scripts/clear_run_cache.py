@@ -10,6 +10,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 
 def resolve_run_root(*, config_path: Path, run_root_arg: str | None) -> Path:
+    # 优先使用 --run-root；否则回退到 config.paths.run_root。
     if run_root_arg:
         candidate = Path(run_root_arg)
         return candidate if candidate.is_absolute() else (PROJECT_ROOT / candidate).resolve()

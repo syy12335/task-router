@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import json
 from typing import Any
@@ -53,6 +53,7 @@ class NormalAgent:
         rounds: list[dict[str, Any]],
         normal_skills_index: str,
     ) -> str:
+        # 将运行时上下文填充到模板，保持 NormalAgent 的输入结构稳定。
         rendered = self.system_prompt
         rendered = _replace_last(rendered, "{{TASK_CONTENT}}", task_content)
         rendered = _replace_last(rendered, "{{ROUNDS_JSON}}", json.dumps(rounds, ensure_ascii=False, indent=2))

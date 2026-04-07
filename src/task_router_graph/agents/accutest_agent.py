@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+
 class AccutestAgent:
+    # 占位实现：后续可接入真实准确性评估逻辑。
     def run(self, *, task_content: str) -> dict[str, str]:
         return {
             "reply": "[accutest] 示例评分：0.83",

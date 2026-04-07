@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 from pathlib import Path
 from typing import Any, Callable
@@ -15,6 +15,7 @@ from .schema import ControllerAction, Environment, RoundRecord, Task
 
 
 def _latest_run_dir(run_root: Path) -> Path:
+    # 兼容历史约定：当外部传入 var/runs/latest/* 时，映射到最近一次 run_*。
     candidates = [p for p in run_root.iterdir() if p.is_dir() and p.name.startswith("run_")]
     return max(candidates, key=lambda p: p.stat().st_mtime)
 
@@ -32,6 +33,7 @@ def _resolve_observe_path(*, workspace_root: Path, run_root: Path, raw_path: str
     return (workspace_root / normalized).resolve()
 
 
+# TODO(env-refactor): _resolve_observe_path/_tool_read/_tool_ls 应迁入 Environment.observe(...)。
 def _tool_read(*, workspace_root: Path, run_root: Path, path: str) -> str:
     target = _resolve_observe_path(workspace_root=workspace_root, run_root=run_root, raw_path=path)
     if target.is_dir():
@@ -41,6 +43,7 @@ def _tool_read(*, workspace_root: Path, run_root: Path, path: str) -> str:
     return text[:8000]
 
 
+# TODO(env-refactor): 目录观察工具也应由 Environment 统一暴露。
 def _tool_ls(*, workspace_root: Path, run_root: Path, path: str = ".") -> str:
     target = _resolve_observe_path(workspace_root=workspace_root, run_root=run_root, raw_path=path)
     entries = sorted(item.name for item in target.iterdir())
@@ -177,7 +180,8 @@ def update_node(
     task: Task,
     reply: str,
 ) -> Environment:
-    # 持久化本轮完整记录；默认观测视图是否暴露 trace 由上层参数控制。
+    # 当前逻辑：由外部节点函数直接修改 Environment。
+    # TODO(env-refactor): 改为 environment.add_round(...)，由 Environment 自己维护内部状态一致性。
     environment.rounds.append(
         RoundRecord(
             round=len(environment.rounds) + 1,

@@ -23,6 +23,7 @@ manual_input = st.text_area("Or Manual Input", placeholder="Type user input here
 if st.button("Run"):
     graph = TaskRouterGraph(config_path="configs/graph.yaml")
 
+    # 支持两种输入：手输用户输入 / 直接读取 case 文件。
     if manual_input.strip():
         result = graph.run(case_id="manual", user_input=manual_input.strip())
     else:

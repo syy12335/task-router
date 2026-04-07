@@ -22,6 +22,7 @@ def main() -> None:
     graph = TaskRouterGraph(config_path=args.config)
     result = graph.run_case(PROJECT_ROOT / args.case)
 
+    # run_demo 只把 output 摘要另存一份，完整环境仍在 run 目录的 result.json 中。
     case_id = Path(args.case).stem
     output_path = PROJECT_ROOT / "data" / "outputs" / f"{case_id}_output.json"
     output_path.write_text(json.dumps(result["output"], ensure_ascii=False, indent=2), encoding="utf-8")

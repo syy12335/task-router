@@ -3,7 +3,9 @@ from __future__ import annotations
 import os
 from typing import Any
 
+
 def build_chat_model(config: dict[str, Any]) -> Any:
+    # 延迟导入，避免在纯数据处理场景下强依赖 langchain-openai。
     from langchain_openai import ChatOpenAI
 
     model_cfg = config["model"]

@@ -15,6 +15,7 @@ from .utils import read_json, timestamp_tag, write_json
 
 
 class GraphState(TypedDict, total=False):
+    # Graph 内部共享状态：每个节点只读/写自己关心的字段。
     case_id: str
     user_input: str
     environment: Environment
@@ -31,6 +32,7 @@ class TaskRouterGraph:
         self.config_path = (self.root / config_path).resolve() if not Path(config_path).is_absolute() else Path(config_path)
         self.config = yaml.safe_load(self.config_path.read_text(encoding="utf-8"))
 
+        # 初始化 LLM 与 prompt/skills 资源。
         self._llm = build_chat_model(self.config)
         self._controller_system = self._load_prompt("src/task_router_graph/prompt/controller/system.md")
         self._normal_system = self._load_prompt("src/task_router_graph/prompt/normal/system.md")
@@ -45,6 +47,7 @@ class TaskRouterGraph:
         self._compiled_graph = self._build_graph()
 
     def _build_graph(self) -> Any:
+        # 执行拓扑：init -> route -> execute(normal/functest/...) -> update。
         builder: StateGraph = StateGraph(GraphState)
         builder.add_node("init", self._init_step)
         builder.add_node("route", self._route_step)
@@ -75,6 +78,7 @@ class TaskRouterGraph:
         return builder.compile()
 
     def _init_step(self, state: GraphState) -> GraphState:
+        # 仅负责为本次运行创建 run 目录，不写任何中间产物。
         run_id = timestamp_tag()
         run_dir = self._prepare_run_dir(run_id=run_id)
         return {"run_id": run_id, "run_dir": str(run_dir)}
@@ -128,6 +132,7 @@ class TaskRouterGraph:
         return {"environment": environment}
 
     def run(self, *, case_id: str, user_input: str, environment: Environment | None = None) -> dict:
+        # 入口：组装初始状态并驱动图执行。
         initial_state: GraphState = {
             "case_id": case_id,
             "user_input": user_input,
@@ -153,8 +158,10 @@ class TaskRouterGraph:
             "environment": to_dict(env),
             "output": to_dict(output),
         }
+        # 当前约定：每次 run 仅落最终结果 result.json。
         write_json(run_dir / "result.json", result_payload)
 
+        # TODO(env-refactor): result_payload 的构建/持久化应下沉为 Environment.export_result(...)。
         return result_payload
 
     def run_case(self, case_path: str | Path) -> dict:

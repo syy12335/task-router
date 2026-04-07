@@ -1,4 +1,4 @@
-"""Agent modules for node execution."""
+"""Agent 模块聚合入口。"""
 
 from .accutest_agent import AccutestAgent, run_accutest_task
 from .controller_agent import ControllerAgent, route_task

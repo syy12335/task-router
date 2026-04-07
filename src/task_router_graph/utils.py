@@ -7,6 +7,7 @@ from typing import Any
 
 
 def ensure_dir(path: Path) -> None:
+    # 写文件前确保父目录存在。
     path.mkdir(parents=True, exist_ok=True)
 
 
@@ -20,4 +21,5 @@ def write_json(path: Path, payload: Any) -> None:
 
 
 def timestamp_tag() -> str:
+    # 统一 run_id 时间戳格式。
     return datetime.now().strftime("%Y%m%d_%H%M%S")

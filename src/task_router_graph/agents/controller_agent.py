@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import json
 from typing import Any, Callable
@@ -95,6 +95,7 @@ class ControllerAgent:
         rounds: list[dict[str, Any]],
         skills_index: str,
     ) -> str:
+        # 模板填充顺序保持固定，便于定位 prompt 问题。
         rendered = self.system_prompt
         rendered = _replace_last(rendered, "{{USER_INPUT}}", user_input)
         rendered = _replace_last(rendered, "{{ROUNDS_JSON}}", json.dumps(rounds, ensure_ascii=False, indent=2))
@@ -102,6 +103,7 @@ class ControllerAgent:
         return rendered
 
 
+# TODO(env-refactor): 观测轨迹 currently 存于本地 observations，未来可由 Environment.observe_session 托管。
 def _replace_last(text: str, old: str, new: str) -> str:
     head, sep, tail = text.rpartition(old)
     if not sep:
