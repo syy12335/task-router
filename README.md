@@ -3,7 +3,8 @@
 ## 目录
 
 - `configs/graph.yaml`: 运行配置
-- `docs/design.md`: 设计说明
+- `docs/environment.md`: Environment 设计说明（round/task/cur_round）
+- `docs/design.md`: 架构设计说明
 - `docs/data_format.md`: 数据格式说明
 - `scripts/run_demo.py`: 单 case 运行
 - `scripts/eval_cases.py`: 批量 case 运行
@@ -21,6 +22,7 @@ streamlit run app/streamlit_app.py
 
 ## 学习顺序
 
-1. 先看 `docs/design.md`
-2. 再看 `docs/data_format.md`
-3. 最后看 `src/task_router_graph/agents`、`nodes.py` 和 `graph.py`
+1. 先看 `docs/environment.md`
+2. 再看 `docs/design.md`
+3. 再看 `docs/data_format.md`
+4. 最后看 `src/task_router_graph/agents`、`nodes.py` 和 `graph.py`
