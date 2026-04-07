@@ -16,13 +16,20 @@ def _now_iso() -> str:
 
 @dataclass
 class Environment:
-    # Environment 按 round 管理；每个 round 内可追加多个 task。
+    # Environment is organized by rounds. Each round can hold multiple tasks.
     rounds: list[RoundRecord] = field(default_factory=list)
+    # Pointer to the current round. This is a formal state field.
+    cur_round: int = 0
     updated_at: str = field(default_factory=_now_iso)
+
+    def __post_init__(self) -> None:
+        # Keep cur_round in sync with rounds when the object is created.
+        self.cur_round = self._infer_cur_round()
 
     def start_round(self, *, user_input: str) -> RoundRecord:
         round_item = RoundRecord(round_id=len(self.rounds) + 1, user_input=user_input, tasks=[])
         self.rounds.append(round_item)
+        self.cur_round = round_item.round_id
         self.updated_at = _now_iso()
         return round_item
 
@@ -36,7 +43,7 @@ class Environment:
     ) -> TaskRecord:
         round_item = self._get_round_or_raise(round_id)
 
-        # 写入 task 时复制对象，避免外部后续修改污染历史。
+        # Copy data before storing so external mutations do not taint history.
         trace_copy = [ControllerAction.from_dict(item.to_dict()) for item in controller_trace]
         task_copy = Task.from_dict(task.to_dict())
 
@@ -51,12 +58,12 @@ class Environment:
         return record
 
     def show_environment(self, *, show_trace: bool = False) -> str:
-        # 给人看的环境展示。
+        # Human-readable dump.
         total_task_count = sum(len(round_item.tasks) for round_item in self.rounds)
         lines: list[str] = [
             "=== Environment ===",
             f"updated_at: {self.updated_at}",
-            f"cur_round: {self._current_round()}",
+            f"cur_round: {self.cur_round}",
             f"round_count: {len(self.rounds)}",
             f"task_count: {total_task_count}",
             "------------------------------",
@@ -100,7 +107,7 @@ class Environment:
         include_reply: bool = True,
         include_trace: bool = False,
     ) -> dict[str, Any]:
-        # 给 AI 读的默认观察视图：包含 cur_round + 展平后的 tasks。
+        # Default read view for AI: cur_round + flattened task items.
         tasks_payload: list[dict[str, object]] = []
 
         for round_item in self.rounds:
@@ -123,7 +130,7 @@ class Environment:
             tasks_payload = tasks_payload[-task_limit:]
 
         return {
-            "cur_round": self._current_round(),
+            "cur_round": self.cur_round,
             "tasks": tasks_payload,
         }
 
@@ -150,7 +157,14 @@ class Environment:
             )
         return payload
 
-    def _current_round(self) -> int:
+    def to_dict(self, *, include_trace: bool = True) -> dict[str, Any]:
+        return {
+            "rounds": self.build_rounds_view(include_trace=include_trace),
+            "cur_round": self.cur_round,
+            "updated_at": self.updated_at,
+        }
+
+    def _infer_cur_round(self) -> int:
         if not self.rounds:
             return 0
         return self.rounds[-1].round_id

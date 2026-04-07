@@ -185,9 +185,7 @@ class TaskRouterGraph:
             run_dir=str(run_dir.relative_to(self.root)),
         )
 
-        environment_payload = {
-            "rounds": env.build_rounds_view(include_trace=True)
-        }
+        environment_payload = env.to_dict(include_trace=True)
         result_payload = {
             "environment": environment_payload,
             "output": to_dict(output),
