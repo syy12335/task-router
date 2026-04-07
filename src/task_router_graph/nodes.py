@@ -16,23 +16,10 @@ MAX_LIST_ENTRIES = 200
 MAX_READ_CHARS = 8000
 
 
-def _latest_run_dir(run_root: Path) -> Path:
-    # 兼容 var/runs/latest 映射到最近 run_*。
-    candidates = [p for p in run_root.iterdir() if p.is_dir() and p.name.startswith("run_")]
-    if not candidates:
-        raise FileNotFoundError(f"No run_* directory found under: {run_root}")
-    return max(candidates, key=lambda p: p.stat().st_mtime)
-
-
-def _resolve_observe_path(*, workspace_root: Path, run_root: Path, raw_path: str) -> Path:
+def _resolve_observe_path(*, workspace_root: Path, raw_path: str) -> Path:
     normalized = raw_path.strip()
     if not normalized:
         raise ValueError("observe path is empty")
-
-    if normalized.startswith("var/runs/latest"):
-        latest = _latest_run_dir(run_root)
-        suffix = normalized[len("var/runs/latest") :].lstrip("/\\")
-        return latest / suffix
 
     path_obj = Path(normalized)
     if path_obj.is_absolute():
@@ -40,8 +27,8 @@ def _resolve_observe_path(*, workspace_root: Path, run_root: Path, raw_path: str
     return (workspace_root / normalized).resolve()
 
 
-def _tool_read(*, workspace_root: Path, run_root: Path, path: str) -> str:
-    target = _resolve_observe_path(workspace_root=workspace_root, run_root=run_root, raw_path=path)
+def _tool_read(*, workspace_root: Path, path: str) -> str:
+    target = _resolve_observe_path(workspace_root=workspace_root, raw_path=path)
     if target.is_dir():
         entries = sorted(item.name for item in target.iterdir())
         return "\n".join(entries[:MAX_LIST_ENTRIES])
@@ -49,22 +36,18 @@ def _tool_read(*, workspace_root: Path, run_root: Path, path: str) -> str:
     return text[:MAX_READ_CHARS]
 
 
-def _tool_ls(*, workspace_root: Path, run_root: Path, path: str) -> str:
-    target = _resolve_observe_path(workspace_root=workspace_root, run_root=run_root, raw_path=path)
+def _tool_ls(*, workspace_root: Path, path: str) -> str:
+    target = _resolve_observe_path(workspace_root=workspace_root, raw_path=path)
     if not target.is_dir():
         raise NotADirectoryError(f"ls expects a directory path, got file: {target}")
     entries = sorted(item.name for item in target.iterdir())
     return "\n".join(entries[:MAX_LIST_ENTRIES])
 
 
-def _build_observe_tools(
-    *,
-    workspace_root: Path,
-    run_root: Path,
-) -> dict[str, Callable[..., Any]]:
+def _build_observe_tools(*, workspace_root: Path) -> dict[str, Callable[..., Any]]:
     return {
-        "read": lambda **kwargs: _tool_read(workspace_root=workspace_root, run_root=run_root, **kwargs),
-        "ls": lambda **kwargs: _tool_ls(workspace_root=workspace_root, run_root=run_root, **kwargs),
+        "read": lambda **kwargs: _tool_read(workspace_root=workspace_root, **kwargs),
+        "ls": lambda **kwargs: _tool_ls(workspace_root=workspace_root, **kwargs),
     }
 
 
@@ -102,24 +85,22 @@ def route_node(
     environment: Environment,
     user_input: str,
     workspace_root: Path,
-    run_root: Path,
     max_steps: int,
 ) -> tuple[Task, list[ControllerAction]]:
-    # 以“轮次快照”形式传给 agent，避免 agent 直接操作 Environment 对象本体。
-    rounds_context = environment.build_observation_view(
-        round_limit=5,
+    tasks_context = environment.build_observation_view(
+        task_limit=5,
         include_user_input=True,
         include_task=True,
         include_reply=True,
         include_trace=False,
     )
-    observe_tools = _build_observe_tools(workspace_root=workspace_root, run_root=run_root)
+    observe_tools = _build_observe_tools(workspace_root=workspace_root)
 
     route_result = route_task(
         llm=llm,
         system_prompt=controller_system,
         user_input=user_input,
-        rounds=rounds_context,
+        tasks=tasks_context,
         skills_index=controller_skills_index,
         observe_tools=observe_tools,
         max_steps=max_steps,
@@ -138,8 +119,8 @@ def normal_node(
     environment: Environment,
     task: Task,
 ) -> tuple[Task, str]:
-    rounds_context = environment.build_observation_view(
-        round_limit=5,
+    tasks_context = environment.build_observation_view(
+        task_limit=5,
         include_user_input=True,
         include_task=True,
         include_reply=True,
@@ -149,7 +130,7 @@ def normal_node(
         llm=llm,
         system_prompt=normal_system,
         task_content=task.content,
-        rounds=rounds_context,
+        tasks=tasks_context,
         normal_skills_index=normal_skills_index,
     )
     task.status = result["task_status"]
@@ -181,13 +162,13 @@ def perftest_node(*, task: Task) -> tuple[Task, str]:
 
 def update_node(
     environment: Environment,
-    user_input: str,
+    round_id: int,
     controller_trace: list[ControllerAction],
     task: Task,
     reply: str,
 ) -> Environment:
-    environment.add_round(
-        user_input=user_input,
+    environment.add_task(
+        round_id=round_id,
         controller_trace=controller_trace,
         task=task,
         reply=reply,

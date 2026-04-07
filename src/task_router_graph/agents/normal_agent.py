@@ -17,12 +17,12 @@ class NormalAgent:
         self,
         *,
         task_content: str,
-        rounds: list[dict[str, Any]],
+        tasks: dict[str, Any],
         normal_skills_index: str,
     ) -> dict[str, str]:
         rendered_system_prompt = self._render_system_prompt(
             task_content=task_content,
-            rounds=rounds,
+            tasks=tasks,
             normal_skills_index=normal_skills_index,
         )
         llm = self.llm.bind(response_format={"type": "json_object"})
@@ -50,13 +50,13 @@ class NormalAgent:
         self,
         *,
         task_content: str,
-        rounds: list[dict[str, Any]],
+        tasks: dict[str, Any],
         normal_skills_index: str,
     ) -> str:
         # 将运行时上下文填充到模板，保持 NormalAgent 的输入结构稳定。
         rendered = self.system_prompt
         rendered = _replace_last(rendered, "{{TASK_CONTENT}}", task_content)
-        rendered = _replace_last(rendered, "{{ROUNDS_JSON}}", json.dumps(rounds, ensure_ascii=False, indent=2))
+        rendered = _replace_last(rendered, "{{TASKS_JSON}}", json.dumps(tasks, ensure_ascii=False, indent=2))
         rendered = _replace_last(rendered, "{{NORMAL_SKILLS_INDEX}}", normal_skills_index)
         return rendered
 
@@ -73,11 +73,11 @@ def run_normal_task(
     llm: Any,
     system_prompt: str,
     task_content: str,
-    rounds: list[dict[str, Any]],
+    tasks: dict[str, Any],
     normal_skills_index: str,
 ) -> dict[str, str]:
     return NormalAgent(llm=llm, system_prompt=system_prompt).run(
         task_content=task_content,
-        rounds=rounds,
+        tasks=tasks,
         normal_skills_index=normal_skills_index,
     )

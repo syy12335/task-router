@@ -15,7 +15,7 @@ from .utils import read_json, timestamp_tag, write_json
 
 
 class GraphState(TypedDict, total=False):
-    # Graph 内部共享状态：每个节点只读/写自己关心的字段。
+    # Graph 内部共享状态。
     case_id: str
     user_input: str
     environment: Environment
@@ -24,6 +24,8 @@ class GraphState(TypedDict, total=False):
     reply: str
     run_id: str
     run_dir: str
+    task_turn: int
+    round_id: int
 
 
 class TaskRouterGraph:
@@ -42,12 +44,13 @@ class TaskRouterGraph:
 
         runtime_cfg = self.config.get("runtime", {})
         self._max_controller_steps = int(runtime_cfg.get("max_controller_steps", runtime_cfg.get("max_observe_steps", 3)))
+        self._max_task_turns = int(runtime_cfg.get("max_task_turns", 5))
         self._run_root = (self.root / self.config["paths"]["run_root"]).resolve()
 
         self._compiled_graph = self._build_graph()
 
     def _build_graph(self) -> Any:
-        # 执行拓扑：init -> route -> execute(normal/functest/...) -> update。
+        # 执行拓扑：init -> route -> execute -> update -> (done? END : route)
         builder: StateGraph = StateGraph(GraphState)
         builder.add_node("init", self._init_step)
         builder.add_node("route", self._route_step)
@@ -73,15 +76,31 @@ class TaskRouterGraph:
         builder.add_edge("functest", "update")
         builder.add_edge("accutest", "update")
         builder.add_edge("perftest", "update")
-        builder.add_edge("update", END)
+        builder.add_conditional_edges(
+            "update",
+            self._pick_after_update,
+            {
+                "route": "route",
+                "end": END,
+            },
+        )
 
         return builder.compile()
 
     def _init_step(self, state: GraphState) -> GraphState:
-        # 仅负责为本次运行创建 run 目录，不写任何中间产物。
         run_id = timestamp_tag()
         run_dir = self._prepare_run_dir(run_id=run_id)
-        return {"run_id": run_id, "run_dir": str(run_dir)}
+
+        environment = state["environment"]
+        round_item = environment.start_round(user_input=state["user_input"])
+
+        return {
+            "run_id": run_id,
+            "run_dir": str(run_dir),
+            "task_turn": 0,
+            "round_id": round_item.round_id,
+            "environment": environment,
+        }
 
     def _route_step(self, state: GraphState) -> GraphState:
         task, controller_trace = route_node(
@@ -91,10 +110,12 @@ class TaskRouterGraph:
             environment=state["environment"],
             user_input=state["user_input"],
             workspace_root=self.root,
-            run_root=self._run_root,
             max_steps=self._max_controller_steps,
         )
-        return {"task": task, "controller_trace": controller_trace}
+        return {
+            "task": task,
+            "controller_trace": controller_trace,
+        }
 
     def _pick_execute_node(self, state: GraphState) -> Literal["normal", "functest", "accutest", "perftest"]:
         return state["task"].type
@@ -124,15 +145,25 @@ class TaskRouterGraph:
     def _update_step(self, state: GraphState) -> GraphState:
         environment = update_node(
             state["environment"],
-            state["user_input"],
+            state["round_id"],
             state["controller_trace"],
             state["task"],
             state["reply"],
         )
-        return {"environment": environment}
+        return {
+            "environment": environment,
+            "task_turn": int(state.get("task_turn", 0)) + 1,
+        }
+
+    def _pick_after_update(self, state: GraphState) -> Literal["route", "end"]:
+        task_status = str(state["task"].status).strip().lower()
+        if task_status == "done":
+            return "end"
+        if int(state.get("task_turn", 0)) >= self._max_task_turns:
+            return "end"
+        return "route"
 
     def run(self, *, case_id: str, user_input: str, environment: Environment | None = None) -> dict:
-        # 入口：组装初始状态并驱动图执行。
         initial_state: GraphState = {
             "case_id": case_id,
             "user_input": user_input,
@@ -155,20 +186,13 @@ class TaskRouterGraph:
         )
 
         environment_payload = {
-            "rounds": env.build_observation_view(
-                round_limit=None,
-                include_user_input=True,
-                include_task=True,
-                include_reply=True,
-                include_trace=True,
-            )
+            "rounds": env.build_rounds_view(include_trace=True)
         }
         result_payload = {
             "environment": environment_payload,
             "output": to_dict(output),
         }
 
-        # 当前约定：每次 run 仅落最终结果 result.json。
         write_json(run_dir / "result.json", result_payload)
         return result_payload
 

@@ -7,7 +7,7 @@
 你只允许使用以下输入：
 
 1. `USER_INPUT`
-2. `ROUNDS_JSON`（默认 observation view，不包含 `controller_trace`）
+2. `TASKS_JSON`（默认 observation view，包含 `cur_round` 与 `tasks`；默认不包含 `controller_trace`）
 3. `SKILLS_INDEX`
 
 你必须把 `SKILLS_INDEX` 视为 task taxonomy、reference 路由与 `task_content` 生成条件的唯一知识来源。
@@ -89,9 +89,9 @@ controller 阶段不要求补齐：
 {{USER_INPUT}}
 [/USER_INPUT]
 
-[ROUNDS_JSON]
-{{ROUNDS_JSON}}
-[/ROUNDS_JSON]
+[TASKS_JSON]
+{{TASKS_JSON}}
+[/TASKS_JSON]
 
 [SKILLS_INDEX]
 {{SKILLS_INDEX}}

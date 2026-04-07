@@ -18,13 +18,13 @@ class ControllerAgent:
         self,
         *,
         user_input: str,
-        rounds: list[dict[str, Any]],
+        tasks: dict[str, Any],
         skills_index: str,
         observe_tools: dict[str, Callable[..., Any]],
     ) -> dict[str, Any]:
         rendered_system_prompt = self._render_system_prompt(
             user_input=user_input,
-            rounds=rounds,
+            tasks=tasks,
             skills_index=skills_index,
         )
         llm = self.llm.bind(response_format={"type": "json_object"})
@@ -54,7 +54,7 @@ class ControllerAgent:
 
             action_kind = str(action.get("action_kind", "")).strip()
             if action_kind == "generate_task":
-                # 将本轮 observe 轨迹附加到输出，供上层 round 结束后再写入 environment。
+                # 将当前 task 的 observe 轨迹附加到输出，供 graph 在 update 节点统一写入 environment。
                 action["controller_trace"] = observations
                 return action
 
@@ -92,13 +92,13 @@ class ControllerAgent:
         self,
         *,
         user_input: str,
-        rounds: list[dict[str, Any]],
+        tasks: dict[str, Any],
         skills_index: str,
     ) -> str:
         # 模板填充顺序保持固定，便于定位 prompt 问题。
         rendered = self.system_prompt
         rendered = _replace_last(rendered, "{{USER_INPUT}}", user_input)
-        rendered = _replace_last(rendered, "{{ROUNDS_JSON}}", json.dumps(rounds, ensure_ascii=False, indent=2))
+        rendered = _replace_last(rendered, "{{TASKS_JSON}}", json.dumps(tasks, ensure_ascii=False, indent=2))
         rendered = _replace_last(rendered, "{{SKILLS_INDEX}}", skills_index)
         return rendered
 
@@ -115,14 +115,14 @@ def route_task(
     llm: Any,
     system_prompt: str,
     user_input: str,
-    rounds: list[dict[str, Any]],
+    tasks: dict[str, Any],
     skills_index: str,
     observe_tools: dict[str, Callable[..., Any]],
     max_steps: int = 3,
 ) -> dict[str, Any]:
     return ControllerAgent(llm=llm, system_prompt=system_prompt, max_steps=max_steps).run(
         user_input=user_input,
-        rounds=rounds,
+        tasks=tasks,
         skills_index=skills_index,
         observe_tools=observe_tools,
     )
