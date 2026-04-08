@@ -1,0 +1,11 @@
+{
+  "count": 5,
+  "files": [
+    "env_fake_01_single_functest_done.json",
+    "env_fake_02_retry_in_one_round.json",
+    "env_fake_03_two_rounds_with_normal_summary.json",
+    "env_fake_04_accutest_and_perftest.json",
+    "env_fake_05_multi_task_round_with_pending.json"
+  ],
+  "schema_note": "Environment full state: rounds + cur_round + updated_at"
+}

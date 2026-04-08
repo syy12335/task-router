@@ -1,0 +1,4 @@
+{
+  "case_id": "fake_case_04",
+  "user_input": "帮我压测 gateway_alpha，重点看 p95 和 qps"
+}

@@ -1,0 +1,4 @@
+{
+  "case_id": "fake_case_09",
+  "user_input": "请做一次 perftest，重点关注并发 100 的退化情况"
+}

@@ -1,0 +1,65 @@
+{
+  "count": 12,
+  "cases": [
+    {
+      "case_id": "fake_case_01",
+      "path": "data/fake/cases/fake_case_01.json",
+      "user_input": "请帮我做一次 anthropic_ver_1 的功能测试"
+    },
+    {
+      "case_id": "fake_case_02",
+      "path": "data/fake/cases/fake_case_02.json",
+      "user_input": "检查一下 genai_ver_2 的 headers 和 body 行为"
+    },
+    {
+      "case_id": "fake_case_03",
+      "path": "data/fake/cases/fake_case_03.json",
+      "user_input": "对 qwen_proxy_v3 做一次准确性评估"
+    },
+    {
+      "case_id": "fake_case_04",
+      "path": "data/fake/cases/fake_case_04.json",
+      "user_input": "帮我压测 gateway_alpha，重点看 p95 和 qps"
+    },
+    {
+      "case_id": "fake_case_05",
+      "path": "data/fake/cases/fake_case_05.json",
+      "user_input": "总结最近一次 functest 的失败原因"
+    },
+    {
+      "case_id": "fake_case_06",
+      "path": "data/fake/cases/fake_case_06.json",
+      "user_input": "基于上轮失败点再做一次功能复测"
+    },
+    {
+      "case_id": "fake_case_07",
+      "path": "data/fake/cases/fake_case_07.json",
+      "user_input": "看看这个接口功能是否正常"
+    },
+    {
+      "case_id": "fake_case_08",
+      "path": "data/fake/cases/fake_case_08.json",
+      "user_input": "整理最近两次测试结果并给出下一步建议"
+    },
+    {
+      "case_id": "fake_case_09",
+      "path": "data/fake/cases/fake_case_09.json",
+      "user_input": "请做一次 perftest，重点关注并发 100 的退化情况"
+    },
+    {
+      "case_id": "fake_case_10",
+      "path": "data/fake/cases/fake_case_10.json",
+      "user_input": "我想验证 genai_ver_1 的返回字段是否稳定"
+    },
+    {
+      "case_id": "fake_case_11",
+      "path": "data/fake/cases/fake_case_11.json",
+      "user_input": "请解释上一轮 accutest 的评分含义"
+    },
+    {
+      "case_id": "fake_case_12",
+      "path": "data/fake/cases/fake_case_12.json",
+      "user_input": "帮我对 anthropic_ver_1 做一次功能测试，重点看 assert"
+    }
+  ]
+}

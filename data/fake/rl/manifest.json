@@ -1,0 +1,12 @@
+{
+  "train_size": 48,
+  "eval_size": 8,
+  "files": [
+    "controller_train.jsonl",
+    "controller_eval.jsonl"
+  ],
+  "action_space": [
+    "observe",
+    "generate_task"
+  ]
+}
