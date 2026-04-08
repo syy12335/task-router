@@ -34,7 +34,7 @@
             "status": "done",
             "result": "accutest 完成：总体评分 0.87"
           },
-          "reply": "[accutest] 已完成，示例评分 0.87"
+          "reply": "[accutest] 已完成，评分 0.87"
         }
       ]
     },

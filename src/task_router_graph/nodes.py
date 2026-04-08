@@ -117,7 +117,7 @@ def _load_tool_demo_data(*, workspace_root: Path) -> dict[str, Any]:
                 },
                 "normal.accutest_explain": {
                     "target": "解释上一轮 accutest 评分",
-                    "demo_result": "accutest demo score=0.83",
+                    "demo_result": "accutest score=0.83",
                 },
                 "functest.retest_from_failed": {
                     "target": "基于上轮失败点再做一次功能复测",

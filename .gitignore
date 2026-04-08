@@ -11,3 +11,7 @@ var/logs/*.log
 
 # Local editor
 .vscode/
+
+# Cache
+hf-cache
+model-cache

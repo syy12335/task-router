@@ -229,13 +229,17 @@ class TaskRouterGraph:
         return "\n\n".join(sections).strip()
 
     def _extract_skill_refs(self, index_text: str) -> list[str]:
-        refs = re.findall(r"`([^`]+\.md)`", index_text)
+        # Only treat markdown-path-like tokens as skill references.
+        # This avoids mis-parsing command snippets that merely mention .md names.
+        refs = re.findall(r"\x60([A-Za-z0-9_./-]+\\.md)\x60", index_text)
         seen: set[str] = set()
         ordered_refs: list[str] = []
         for ref in refs:
-            if ref not in seen:
-                seen.add(ref)
-                ordered_refs.append(ref)
+            normalized = ref.strip()
+            if not normalized or normalized in seen:
+                continue
+            seen.add(normalized)
+            ordered_refs.append(normalized)
         return ordered_refs
 
     def _resolve_skill_ref(self, index_dir: Path, relative_ref: str) -> Path:

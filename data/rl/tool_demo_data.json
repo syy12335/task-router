@@ -56,8 +56,8 @@
       "task_id": 1,
       "task_type": "accutest",
       "task_status": "done",
-      "task_result": "accutest demo score=0.83",
-      "reply": "[accutest] demo score: 0.83",
+      "task_result": "accutest score=0.83",
+      "reply": "[accutest] 评分: 0.83",
       "user_input": "做一次 qwen_proxy_v3 的准确性评估",
       "trace_count": 2
     },
@@ -137,7 +137,7 @@
         "recent_tasks(task_type=accutest, limit=1)",
         "generate_task(normal)"
       ],
-      "demo_result": "已找到 accutest demo score=0.83，可生成解释类 normal task"
+      "demo_result": "已找到 accutest score=0.83，可生成解释类 normal task"
     },
     "normal.functest_failed_summary": {
       "target": "总结最近一次 functest 的失败原因",
