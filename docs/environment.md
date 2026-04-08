@@ -15,6 +15,7 @@
 
 ### 2.1 Environment（full state）
 
+- case_id: str（由 graph 落盘时注入，用于标识本次 run 对应的 case）
 - rounds: list[RoundRecord]
 - cur_round: int
 - updated_at: str
@@ -34,6 +35,7 @@
 
 ### 2.4 Task
 
+- task_id: int（镜像 TaskRecord.task_id，便于直接读取 task 本体时定位）
 - type: str
 - content: str
 - status: str
@@ -57,7 +59,7 @@
 
 ### to_dict(include_trace=True)
 
-返回 Environment full state，顶层包含 rounds、cur_round、updated_at。
+返回 Environment full state；Environment 本体包含 rounds、cur_round、updated_at，落盘到 var/runs 时会额外包含 case_id。
 
 ### build_observation_view(...)
 
@@ -71,6 +73,7 @@
       task_id: 1,
       user_input: ...,
       task: {
+        task_id: 1,
         type: normal,
         content: ...,
         status: done,

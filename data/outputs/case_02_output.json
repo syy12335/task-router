@@ -1,8 +1,0 @@
-{
-  "case_id": "case_02",
-  "task_type": "normal",
-  "task_status": "done",
-  "task_result": "normal task completed",
-  "reply": "[normal] 请总结上一次测试结果并给出下一步建议",
-  "run_dir": "var/runs/run_SAMPLE"
-}

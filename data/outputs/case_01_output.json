@@ -1,8 +1,0 @@
-{
-  "case_id": "case_01",
-  "task_type": "functest",
-  "task_status": "done",
-  "task_result": "functest 已完成（示例执行）：针对 anthropic_ver_1 执行功能测试，重点验证核心功能行为与断言结果",
-  "reply": "[functest] 已完成（示例断言）",
-  "run_dir": "var/runs/run_20260408_112804"
-}

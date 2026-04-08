@@ -6,7 +6,6 @@ model:
 
 paths:
   cases_dir: data/cases
-  outputs_dir: data/outputs
   run_root: var/runs
   logs_dir: var/logs
 

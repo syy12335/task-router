@@ -8,6 +8,12 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from .common import extract_text, parse_json_object
 
 
+class ControllerRouteError(ValueError):
+    def __init__(self, message: str, *, observations: list[dict[str, Any]] | None = None) -> None:
+        super().__init__(message)
+        self.observations = observations or []
+
+
 class ControllerAgent:
     def __init__(self, *, llm: Any, system_prompt: str, max_steps: int = 3) -> None:
         self.llm = llm
@@ -59,7 +65,10 @@ class ControllerAgent:
                 return action
 
             if action_kind != "observe":
-                raise ValueError(f"Unexpected action_kind from controller-agent: {action_kind}")
+                raise ControllerRouteError(
+                    f"Unexpected action_kind from controller-agent: {action_kind}",
+                    observations=observations,
+                )
 
             tool_name = str(action.get("tool", "")).strip()
             tool_args = action.get("args", {})
@@ -68,9 +77,19 @@ class ControllerAgent:
 
             tool = observe_tools.get(tool_name)
             if tool is None:
-                raise ValueError(f"Observe tool is not registered: {tool_name}")
+                raise ControllerRouteError(
+                    f"Observe tool is not registered: {tool_name}",
+                    observations=observations,
+                )
 
-            observation_result = tool(**tool_args)
+            try:
+                observation_result = tool(**tool_args)
+            except Exception as exc:
+                raise ControllerRouteError(
+                    f"Observe tool execution failed: tool={tool_name}, error={exc}",
+                    observations=observations,
+                ) from exc
+
             observation_text = (
                 observation_result.strip()
                 if isinstance(observation_result, str)
@@ -86,7 +105,10 @@ class ControllerAgent:
                 }
             )
 
-        raise ValueError("ControllerAgent exceeded max_steps without returning generate_task")
+        raise ControllerRouteError(
+            "ControllerAgent exceeded max_steps without returning generate_task",
+            observations=observations,
+        )
 
     def _render_system_prompt(
         self,

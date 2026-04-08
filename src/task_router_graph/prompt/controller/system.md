@@ -59,6 +59,8 @@ controller 阶段不要求补齐：
 
 - 当 `USER_INPUT` 已可初步判断 task_type 时，第一步 observe 优先使用 `read` 读取该 task_type 的 reference。
 - 不得先为了“看看有没有配置”去扫描目录。
+- 当用户提到“最近一次/上一次/latest”时，默认先基于 `TASKS_JSON` 最近任务事实，不足时再读取已知的 `environment` 文件。
+- 禁止臆造文件名（例如 `outputs/latest_*.json`、`latest_result.json`）并直接 `read`。
 
 ### `ls`
 

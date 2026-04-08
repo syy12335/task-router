@@ -14,6 +14,7 @@ Environment full state 口径固定为 rounds + cur_round + updated_at。
 
 ### 1.3 Task 对象
 
+- task_id：任务编号（在 round 内递增）
 - type：任务类型，例如 normal、functest
 - content：执行目标
 - status：任务状态，pending/running/done/failed
@@ -32,6 +33,7 @@ Environment full state 示例：
           task_id: 1,
           controller_trace: [],
           task: {
+            task_id: 1,
             type: functest,
             content: 针对 anthropic_ver_1 执行 functest,
             status: failed,

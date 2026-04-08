@@ -20,7 +20,7 @@ streamlit run app/streamlit_app.py
 
 ## 统一口径
 
-- Environment full state 顶层字段固定为：rounds、cur_round、updated_at。
+- Environment full state（落盘到 var/runs）顶层字段为：case_id、rounds、cur_round、updated_at。
 - round 是输入级单位，一个 round 内可有多个 task。
 - observation view 是给 AI 的读取视图，不等于 Environment 本体。
 

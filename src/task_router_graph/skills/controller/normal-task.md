@@ -29,9 +29,10 @@
 
 ## 信息不足时优先 observe 什么
 
-1. 最近一次相关 task 结果
-2. 最近一次相关报告或输出文件
-3. normal 场景下的历史 tasks
+1. 优先使用 `TASKS_JSON` 中最近相关 task 结果（不先猜文件名）。
+2. 若仍不足，读取已知 `environment` 文件（如 `var/runs/.../environment.json`）或用户明确给出的文件。
+3. 再看 normal 场景下的历史 tasks。
+4. 禁止臆造 `outputs/latest_*.json`、`latest_result.json` 等路径。
 
 ## 何时可以 generate_task
 

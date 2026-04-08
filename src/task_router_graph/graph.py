@@ -118,7 +118,10 @@ class TaskRouterGraph:
         }
 
     def _pick_execute_node(self, state: GraphState) -> Literal["normal", "functest", "accutest", "perftest"]:
-        return state["task"].type
+        task_type = str(state["task"].type).strip().lower()
+        if task_type in {"normal", "functest", "accutest", "perftest"}:
+            return task_type  # type: ignore[return-value]
+        return "normal"
 
     def _normal_step(self, state: GraphState) -> GraphState:
         task, reply = normal_node(
@@ -157,7 +160,7 @@ class TaskRouterGraph:
 
     def _pick_after_update(self, state: GraphState) -> Literal["route", "end"]:
         task_status = str(state["task"].status).strip().lower()
-        if task_status == "done":
+        if task_status in {"done", "failed"}:
             return "end"
         if int(state.get("task_turn", 0)) >= self._max_task_turns:
             return "end"
@@ -186,6 +189,7 @@ class TaskRouterGraph:
         )
 
         environment_payload = env.to_dict(include_trace=True)
+        environment_payload["case_id"] = case_id
         result_payload = {
             "environment": environment_payload,
             "output": to_dict(output),

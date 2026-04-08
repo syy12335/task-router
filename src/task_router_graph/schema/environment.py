@@ -47,8 +47,13 @@ class Environment:
         trace_copy = [ControllerAction.from_dict(item.to_dict()) for item in controller_trace]
         task_copy = Task.from_dict(task.to_dict())
 
+        next_task_id = len(round_item.tasks) + 1
+        task_copy.task_id = next_task_id
+        # keep runtime task object aligned with persisted task id
+        task.task_id = next_task_id
+
         record = TaskRecord(
-            task_id=len(round_item.tasks) + 1,
+            task_id=next_task_id,
             controller_trace=trace_copy,
             task=task_copy,
             reply=reply,
