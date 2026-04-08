@@ -9,6 +9,15 @@
 - 给这个结果打分
 - 看一下模型效果
 
+## 场景步骤模板
+
+1. 执行评估（不是解释）
+   - `read accutest-task.md` -> `generate_task(accutest)`
+
+2. 历史评分解释请求（通常应路由到 normal）
+   - 示例：`请解释上一轮 accutest 的评分含义`
+   - 步骤：`read normal-task.md` -> `recent_tasks(task_type=accutest, limit=1)` -> `generate_task(normal)`
+
 ## 最小信息要求
 
 生成 `accutest` 的 `task_content` 前，controller 至少应知道：
@@ -22,7 +31,7 @@
 优先级建议：
 
 1. `accutest-task.md` 自身
-2. 最近一次 accutest 或相关评估结果
+2. 最近一次 accutest 或相关评估结果（优先 `recent_tasks`）
 3. 评估对象对应的输入 / 输出材料
 
 ## 何时可以 generate_task

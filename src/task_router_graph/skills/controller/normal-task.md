@@ -1,4 +1,4 @@
-﻿# Normal Task Reference
+# Normal Task Reference
 
 定位：`normal` 处理解释、总结、查阅、引导、继续回答类任务，而不是重新执行测试。
 
@@ -14,10 +14,45 @@
 
 当 `USER_INPUT` 已指向 normal，但 `task_content` 仍不足时：
 
-1. 优先 `read` 本 reference：
-   - `read {"path":"src/task_router_graph/skills/controller/normal-task.md"}`
-2. 禁止默认目录探索。
-3. 只有在明确知道目标目录后，才可使用 `ls` 定向查看。
+1. 第一优先级：`read {"path":"src/task_router_graph/skills/controller/normal-task.md"}`
+2. 历史事实优先使用结构化工具：`latest_run_snapshot` / `recent_tasks`
+3. 禁止默认目录探索，禁止先猜 `latest_*.json` 路径
+
+## normal 场景的步骤模板
+
+1. 最近一次测试总结
+   - 输入示例：`请总结上一次测试结果并给出下一步建议`
+   - 步骤：
+     - `read normal-task.md`
+     - `latest_run_snapshot {}`
+     - 如需补充：`recent_tasks {"limit": 2}`
+     - `generate_task(normal)`
+
+2. 最近 N 次总结
+   - 输入示例：`整理最近两次测试结果并给出下一步建议`
+   - 步骤：
+     - `read normal-task.md`
+     - `recent_tasks {"limit": 2}`
+     - `generate_task(normal)`
+
+3. 解释上一轮 accutest 评分
+   - 输入示例：`请解释上一轮 accutest 的评分含义`
+   - 步骤：
+     - `read normal-task.md`
+     - `recent_tasks {"task_type": "accutest", "limit": 1}`
+     - `generate_task(normal)`
+
+4. 总结最近一次 functest 失败原因
+   - 输入示例：`总结最近一次 functest 的失败原因`
+   - 步骤：
+     - `read normal-task.md`
+     - `recent_tasks {"task_type": "functest", "status": "failed", "limit": 1, "include_trace": true}`
+     - `generate_task(normal)`
+
+5. 历史 run 为空时的 mock 兜底
+   - 步骤：
+     - `demo_lookup {"key": "normal.latest_summary"}` 或 `demo_lookup {"key": "normal.accutest_explain"}`
+     - `generate_task(normal)`
 
 ## 最小信息要求
 
@@ -26,13 +61,6 @@
 1. 当前目标属于解释 / 总结 / 查阅 / 引导中的哪一种
 2. 本轮回复依赖的核心上下文是什么
 3. 若用户追问历史结果，至少掌握最近一次相关任务结果摘要
-
-## 信息不足时优先 observe 什么
-
-1. 优先使用 `TASKS_JSON` 中最近相关 task 结果（不先猜文件名）。
-2. 若仍不足，读取已知 `environment` 文件（如 `var/runs/.../environment.json`）或用户明确给出的文件。
-3. 再看 normal 场景下的历史 tasks。
-4. 禁止臆造 `outputs/latest_*.json`、`latest_result.json` 等路径。
 
 ## 何时可以 generate_task
 
@@ -47,7 +75,7 @@
 推荐：
 
 - 根据最近一次 functest 结果整理失败原因摘要
-- 总结最近几次任务输出中的关键信息
+- 总结最近两次测试任务输出并给出下一步建议
 - 解释最近一次 accutest 结果的核心结论
 - 根据已有上下文给出使用指导
 

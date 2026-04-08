@@ -1,4 +1,4 @@
-﻿# Functest Task Reference
+# Functest Task Reference
 
 ## 1. 定位
 
@@ -6,7 +6,7 @@
 - controller 在这一层负责确定：本轮测什么、围绕什么测、重点朝哪个方向测。
 - controller 不负责在这一层补齐完整执行配置。
 
-## 2. 常见场景分类
+## 2. 常见场景分类与步骤
 
 ### 场景 A：明确对象的直接功能测试
 
@@ -15,11 +15,10 @@
 - 请帮我做一次 anthropic_ver_1 的功能测试
 - 检查一下 genai_ver_1 的功能是否正常
 
-content 生成方向：
+步骤：
 
-- 直接围绕该对象生成测试目标。
-- 若用户未给额外关注点，可使用 functest 默认关注方向。
-- 不要求先读取具体配置文件。
+1. `read {"path":"src/task_router_graph/skills/controller/functest-task.md"}`
+2. 直接 `generate_task(functest)`
 
 ### 场景 B：带明确关注点的功能测试
 
@@ -28,22 +27,25 @@ content 生成方向：
 - 做一次 anthropic_ver_1 的功能测试，重点看 headers
 - 检查这个协议的 body 和 assert 是否合理
 
-content 生成方向：
+步骤：
 
-- 对象明确前提下，将用户显式关注点写入 `task_content`。
-- 优先继承用户显式关注点，不回退泛化模板。
+1. `read functest-task.md`
+2. 将用户显式关注点写入 `task_content`
+3. `generate_task(functest)`
 
-### 场景 C：基于已有结果/已有配置的复测
+### 场景 C：基于已有结果的复测
 
 示例：
 
 - 用昨天那次配置再做一次功能测试
-- 基于最近一次 functest 输出重新检查
+- 基于上轮失败点再做一次功能复测
 
-content 生成方向：
+步骤：
 
-- 先确认引用的是哪次历史对象或哪份已有产物。
-- 该场景才可能需要读取外部环境对象。
+1. `read functest-task.md`
+2. `recent_tasks {"task_type":"functest","status":"failed","limit":1,"include_trace":true}`
+3. 若历史为空：`demo_lookup {"key":"functest.retest_from_failed"}`
+4. `generate_task(functest)`
 
 ### 场景 D：对象不明确的泛化请求
 
@@ -52,10 +54,11 @@ content 生成方向：
 - 帮我做一次功能测试
 - 看看这个接口功能对不对
 
-content 生成方向：
+步骤：
 
-- 当前对象不明确，先补齐任务对象。
-- 该场景才需要进一步 observe。
+1. `read functest-task.md`
+2. 仅在对象不明确时再 observe 历史上下文（优先 `latest_run_snapshot` / `recent_tasks`）
+3. 明确对象后 `generate_task(functest)`
 
 ## 3. `task_content` 生成原则
 
@@ -86,7 +89,7 @@ content 生成方向：
 
 - 针对 anthropic_ver_1 执行功能测试，重点验证核心功能行为与断言结果
 - 对 genai_ver_1 执行功能测试，重点检查请求结构与返回行为是否符合预期
-- 基于最近一次 functest 结果对 anthropic_ver_1 进行复测，重点确认上轮失败点
+- 基于最近一次 functest 失败点对 anthropic_ver_1 进行复测，重点确认上轮失败断言
 
 不推荐：
 

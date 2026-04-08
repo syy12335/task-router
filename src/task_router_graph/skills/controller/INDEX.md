@@ -1,4 +1,4 @@
-﻿# Controller Encyclopedia
+# Controller Encyclopedia
 
 本文件是 controller 的 skills index 入口。
 
@@ -18,7 +18,8 @@
    - 禁止先目录探索。
 
 2. 缺外部环境事实（历史 run、报告、用户明确文件、具体产物）：
-   - 才允许 `read/ls` 环境对象。
+   - 优先 `latest_run_snapshot` / `recent_tasks`。
+   - 只有路径明确且工具结果不足时，才允许 `read/ls` 文件系统。
 
 ### `ls` 约束
 
@@ -27,10 +28,19 @@
 - 禁止将 `ls` 作为默认第一步。
 - 禁止无目标扫描 `configs`、仓库根目录或泛目录。
 
-### `read` 优先级
+### `read` 约束
 
 - 当 `USER_INPUT` 已可初步判断 task_type，第一步 observe 优先 `read` 该 task_type reference。
 - 不得先为了补配置执行目录扫描。
+- 禁止臆造 `latest_result.json` 或 `outputs/latest_*.json` 路径。
+
+## 可用 observe 工具
+
+- `read {"path":"..."}`
+- `ls {"path":"..."}`
+- `latest_run_snapshot {"task_type":"...","include_trace":false}`
+- `recent_tasks {"limit":5,"task_type":"...","status":"done|failed","include_trace":false}`
+- `demo_lookup {"key":"normal.latest_summary"}`
 
 ## task_type 与 reference 映射
 
@@ -46,50 +56,48 @@
 - `src/task_router_graph/skills/controller/accutest-task.md`
 - `src/task_router_graph/skills/controller/perftest-task.md`
 
+## 场景化步骤（按顺序）
+
+1. 场景：明确对象的 functest
+   - 输入示例：`请帮我做一次 anthropic_ver_1 的功能测试`
+   - 步骤：`read functest-task.md` -> `generate_task(functest)`
+
+2. 场景：总结最近一次测试结果（normal）
+   - 输入示例：`请总结上一次测试结果并给出下一步建议`
+   - 步骤：`read normal-task.md` -> `latest_run_snapshot` -> `generate_task(normal)`
+   - 若 snapshot 不足：补 `recent_tasks(limit=2)`
+
+3. 场景：解释上一轮 accutest 评分（normal）
+   - 输入示例：`请解释上一轮 accutest 的评分含义`
+   - 步骤：`read normal-task.md` -> `recent_tasks(task_type=accutest, limit=1)` -> `generate_task(normal)`
+
+4. 场景：基于失败点复测（functest）
+   - 输入示例：`基于上轮失败点再做一次功能复测`
+   - 步骤：`read functest-task.md` -> `recent_tasks(task_type=functest, status=failed, limit=1, include_trace=true)` -> `generate_task(functest)`
+
+5. 场景：没有历史 run，走 demo 兜底
+   - 步骤：`demo_lookup(key=...)` 获取 mock 事实后，再 `generate_task`
+   - demo 数据源：`data/rl/tool_demo_data.json`
+
 ---
 
 ## `normal` task
 
 定位：解释、总结、查阅、引导、继续回答类任务。
 
-常见情况：
-
-- 历史报告查阅
-- 历史结果分析
-- 使用指导
-- 联系人工 oncall
-- 基于已有测试结果继续回答
-
 Reference：`normal-task.md`
-
----
 
 ## `functest` task
 
 定位：功能测试任务，用于定义“本轮测试目标（target）”。
 
-常见情况：
-
-- 做功能测试
-- 带关注点的功能测试（headers/body/assert）
-- 基于已有产物复测
-
-约束：
-
-- 对象明确且类型明确时，应优先生成面向对象的 target。
-- 不得默认将“未读取配置文件”作为继续 observe 的理由。
-
 Reference：`functest-task.md`
-
----
 
 ## `accutest` task
 
 定位：精度/质量/评分评估任务。
 
 Reference：`accutest-task.md`
-
----
 
 ## `perftest` task
 

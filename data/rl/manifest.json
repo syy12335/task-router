@@ -3,7 +3,8 @@
   "eval_size": 8,
   "files": [
     "controller_train.jsonl",
-    "controller_eval.jsonl"
+    "controller_eval.jsonl",
+    "tool_demo_data.json"
   ],
   "action_space": [
     "observe",

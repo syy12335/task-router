@@ -1,0 +1,161 @@
+{
+  "latest_run_snapshot": {
+    "run_token": "run_DEMO_000010",
+    "case_id": "case_demo_latest",
+    "updated_at": "2026-04-08T00:30:00+00:00",
+    "tasks": [
+      {
+        "run_token": "run_DEMO_000010",
+        "case_id": "case_demo_latest",
+        "updated_at": "2026-04-08T00:30:00+00:00",
+        "round_id": 1,
+        "task_id": 1,
+        "task_type": "functest",
+        "task_status": "failed",
+        "task_result": "2 asserts failed in anthropic_ver_1",
+        "reply": "[functest] finished with failures",
+        "user_input": "请帮我做一次 anthropic_ver_1 的功能测试"
+      }
+    ]
+  },
+  "recent_tasks": [
+    {
+      "run_token": "run_DEMO_000010",
+      "case_id": "case_demo_latest",
+      "updated_at": "2026-04-08T00:30:00+00:00",
+      "round_id": 1,
+      "task_id": 1,
+      "task_type": "functest",
+      "task_status": "failed",
+      "task_result": "2 asserts failed in anthropic_ver_1",
+      "reply": "[functest] finished with failures",
+      "user_input": "请帮我做一次 anthropic_ver_1 的功能测试",
+      "trace_count": 3,
+      "controller_trace": [
+        {
+          "action_kind": "observe",
+          "reason": "read functest reference",
+          "tool": "read",
+          "args": {
+            "path": "src/task_router_graph/skills/controller/functest-task.md"
+          }
+        },
+        {
+          "action_kind": "generate_task",
+          "reason": "target is clear",
+          "task_type": "functest",
+          "task_content": "针对 anthropic_ver_1 执行功能测试，重点验证 assert"
+        }
+      ]
+    },
+    {
+      "run_token": "run_DEMO_000009",
+      "case_id": "case_demo_accu",
+      "updated_at": "2026-04-08T00:20:00+00:00",
+      "round_id": 1,
+      "task_id": 1,
+      "task_type": "accutest",
+      "task_status": "done",
+      "task_result": "accutest demo score=0.83",
+      "reply": "[accutest] demo score: 0.83",
+      "user_input": "做一次 qwen_proxy_v3 的准确性评估",
+      "trace_count": 2
+    },
+    {
+      "run_token": "run_DEMO_000008",
+      "case_id": "case_demo_perf",
+      "updated_at": "2026-04-08T00:12:00+00:00",
+      "round_id": 1,
+      "task_id": 1,
+      "task_type": "perftest",
+      "task_status": "done",
+      "task_result": "p95=132ms qps=220",
+      "reply": "[perftest] baseline recorded",
+      "user_input": "帮我压测 gateway_alpha，重点看 p95 和 qps",
+      "trace_count": 2
+    },
+    {
+      "run_token": "run_DEMO_000007",
+      "case_id": "case_demo_normal",
+      "updated_at": "2026-04-08T00:05:00+00:00",
+      "round_id": 1,
+      "task_id": 1,
+      "task_type": "normal",
+      "task_status": "done",
+      "task_result": "summarized latest functest failures",
+      "reply": "[normal] summary generated",
+      "user_input": "请总结上一次测试结果并给出下一步建议",
+      "trace_count": 3
+    }
+  ],
+  "tool_specs": {
+    "latest_run_snapshot": {
+      "description": "用于最近一次测试结果类问题",
+      "recommended_args": {
+        "include_trace": false
+      }
+    },
+    "recent_tasks": {
+      "description": "用于最近N次、按类型/状态筛选",
+      "recommended_args": {
+        "limit": 2,
+        "task_type": "functest",
+        "status": "failed",
+        "include_trace": true
+      }
+    },
+    "demo_lookup": {
+      "description": "当无历史run时读取mock场景",
+      "recommended_args": {
+        "key": "normal.latest_summary"
+      }
+    }
+  },
+  "scenarios": {
+    "normal.latest_summary": {
+      "target": "总结最近一次测试结果",
+      "suggested_steps": [
+        "read normal-task.md",
+        "latest_run_snapshot",
+        "generate_task(normal)"
+      ],
+      "demo_result": "最近一次任务为 functest 且失败，可生成总结+建议类 normal task"
+    },
+    "normal.recent_two_summary": {
+      "target": "整理最近两次测试结果并给出建议",
+      "suggested_steps": [
+        "read normal-task.md",
+        "recent_tasks(limit=2)",
+        "generate_task(normal)"
+      ],
+      "demo_result": "已聚合最近两条任务，可生成汇总类 normal task"
+    },
+    "normal.accutest_explain": {
+      "target": "解释上一轮 accutest 评分",
+      "suggested_steps": [
+        "read normal-task.md",
+        "recent_tasks(task_type=accutest, limit=1)",
+        "generate_task(normal)"
+      ],
+      "demo_result": "已找到 accutest demo score=0.83，可生成解释类 normal task"
+    },
+    "normal.functest_failed_summary": {
+      "target": "总结最近一次 functest 的失败原因",
+      "suggested_steps": [
+        "read normal-task.md",
+        "recent_tasks(task_type=functest, status=failed, limit=1, include_trace=true)",
+        "generate_task(normal)"
+      ],
+      "demo_result": "已命中 functest failed 样本，可生成失败原因总结"
+    },
+    "functest.retest_from_failed": {
+      "target": "基于上轮失败点再做一次功能复测",
+      "suggested_steps": [
+        "read functest-task.md",
+        "recent_tasks(task_type=functest, status=failed, limit=1, include_trace=true)",
+        "generate_task(functest)"
+      ],
+      "demo_result": "已找到失败样本与关注点，可生成复测类 functest task"
+    }
+  }
+}

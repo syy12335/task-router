@@ -9,6 +9,14 @@
 - 跑压测
 - 看吞吐和 p95
 
+## 场景步骤模板
+
+1. 明确对象的性能测试
+   - `read perftest-task.md` -> `generate_task(perftest)`
+
+2. 需要参考历史退化情况
+   - `read perftest-task.md` -> `recent_tasks(task_type=perftest, limit=1)` -> `generate_task(perftest)`
+
 ## 最小信息要求
 
 生成 `perftest` 的 `task_content` 前，controller 至少应知道：
@@ -22,7 +30,7 @@
 优先级建议：
 
 1. `perftest-task.md` 自身
-2. 最近一次 perftest 相关结果
+2. 最近一次 perftest 相关结果（优先 `recent_tasks`）
 3. 当前目标对象的性能上下文
 
 ## 何时可以 generate_task
