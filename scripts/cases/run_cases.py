@@ -6,6 +6,8 @@ import sys
 import threading
 import time
 import traceback
+
+import yaml
 from pathlib import Path
 from typing import Callable, TypeVar
 
@@ -94,6 +96,17 @@ def main() -> None:
         parser.add_argument("--show-traceback", action="store_true", help="Print full traceback for failed cases")
         args = parser.parse_args()
 
+        config_path = Path(args.config)
+        if not config_path.is_absolute():
+            config_path = PROJECT_ROOT / config_path
+        config_path = config_path.resolve()
+
+        from task_router_graph.llm import resolve_provider_and_model
+
+        config_payload = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+        provider, model_name = resolve_provider_and_model(config_payload)
+        _log(f"Run model config: provider={provider}, model={model_name}")
+
         cases_dir = Path(args.cases_dir)
         if not cases_dir.is_absolute():
             cases_dir = PROJECT_ROOT / cases_dir
@@ -117,11 +130,11 @@ def main() -> None:
                 "Failed to import TaskRouterGraph. Please install dependencies (pip install -r requirements.txt)."
             ) from exc
 
-        _log(f"Loading graph with config: {args.config}")
+        _log(f"Loading graph with config: {config_path}")
         graph, _ = _with_heartbeat(
             "Graph initialization",
             args.heartbeat_sec,
-            lambda: TaskRouterGraph(config_path=args.config),
+            lambda: TaskRouterGraph(config_path=str(config_path)),
         )
 
         _log(f"Found {len(case_files)} valid case files in {cases_dir}")
