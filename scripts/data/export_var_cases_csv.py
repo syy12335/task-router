@@ -111,7 +111,9 @@ def build_rows(*, runs_dir: Path) -> tuple[list[dict[str, Any]], dict[str, int]]
             for task_item_raw in tasks:
                 task_item = _safe_dict(task_item_raw)
                 task_payload = _safe_dict(task_item.get("task"))
-                trace = _safe_list(task_item.get("controller_trace"))
+                trace = _safe_list(task_item.get("track"))
+                if not trace:
+                    trace = _safe_list(task_item.get("controller_trace"))
 
                 last_action_kind = ""
                 last_observe_tool = ""

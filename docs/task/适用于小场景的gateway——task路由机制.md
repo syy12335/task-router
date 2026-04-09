@@ -31,7 +31,7 @@ Environment full state 示例：
       tasks: [
         {
           task_id: 1,
-          controller_trace: [],
+          track: [],
           task: {
             task_id: 1,
             type: functest,
@@ -62,3 +62,27 @@ Environment full state 示例：
 - observe 时使用 tool/args
 - generate_task 时使用 task_type/task_content
 - 训练样本中的 environment 也应遵循 rounds + cur_round + updated_at
+
+
+## 3. 失败重试设计记录（2026-04）
+
+### 3.1 设计变更
+
+- 已取消“把失败原因拼进下一次 task_content”的做法。
+- `track` 取代 `controller_trace`，统一记录一个 task 的全轨迹：
+  - controller 的 observe / generate_task 轨迹
+  - 执行 agent（normal/functest/accutest/perftest）的执行结果轨迹
+
+### 3.2 controller 在 failed 后的输入策略
+
+- `route_node` 不再手工组装 `previous_failed_track`。
+- 改为调用 Environment 内置方法 `build_controller_input_view(default_task_limit=5)`。
+- 当上一 task 为 failed 时，Environment 会自动输出：
+  - `previous_failed_task`（失败任务摘要）
+  - `previous_failed_track`（失败任务完整 track）
+
+### 3.3 收益
+
+- task.content 保持干净，只表达执行目标。
+- 失败复盘上下文与任务目标分离，减少 prompt 污染。
+- 失败重试输入逻辑收敛到 Environment，避免节点层重复/漂移。

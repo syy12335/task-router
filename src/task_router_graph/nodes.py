@@ -67,6 +67,7 @@ def _strip_trace_in_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
             continue
         copied = dict(row)
         copied.pop("controller_trace", None)
+        copied.pop("track", None)
         sanitized.append(copied)
     return sanitized
 
@@ -179,7 +180,9 @@ def _extract_task_rows_from_env(
             if not isinstance(task_payload, dict):
                 task_payload = {}
 
-            trace = task_item.get("controller_trace")
+            trace = task_item.get("track")
+            if not isinstance(trace, list):
+                trace = task_item.get("controller_trace")
             if not isinstance(trace, list):
                 trace = []
 
@@ -198,7 +201,7 @@ def _extract_task_rows_from_env(
                 "trace_count": len(trace),
             }
             if include_trace:
-                row["controller_trace"] = trace
+                row["track"] = trace
             rows.append(row)
 
     return rows
@@ -504,6 +507,27 @@ def _try_skip_execute(task: Task, *, stage: str) -> tuple[Task, str] | None:
     return task, f"[{stage}] {summary}"
 
 
+def _controller_trace_to_track(controller_trace: list[ControllerAction]) -> list[dict[str, Any]]:
+    track: list[dict[str, Any]] = []
+    for action in controller_trace:
+        item = action.to_dict()
+        item["agent"] = "controller"
+        track.append(item)
+    return track
+
+
+def _build_agent_track(*, agent: str, event: str, task: Task, reply: str) -> list[dict[str, Any]]:
+    return [
+        {
+            "agent": agent,
+            "event": event,
+            "task_status": str(task.status).strip(),
+            "task_result": str(task.result).strip(),
+            "reply": str(reply).strip(),
+        }
+    ]
+
+
 def route_node(
     *,
     llm: Any,
@@ -515,13 +539,8 @@ def route_node(
     max_steps: int,
     invoke_config: dict[str, Any] | None = None,
 ) -> tuple[Task, list[ControllerAction]]:
-    tasks_context = environment.build_observation_view(
-        task_limit=5,
-        include_user_input=True,
-        include_task=True,
-        include_reply=True,
-        include_trace=False,
-    )
+    tasks_context = environment.build_controller_input_view(default_task_limit=5)
+
     observe_tools = _build_observe_tools(workspace_root=workspace_root)
 
     try:
@@ -581,10 +600,11 @@ def normal_node(
     environment: Environment,
     task: Task,
     invoke_config: dict[str, Any] | None = None,
-) -> tuple[Task, str]:
+) -> tuple[Task, str, list[dict[str, Any]]]:
     skipped = _try_skip_execute(task, stage="normal")
     if skipped is not None:
-        return skipped
+        skipped_task, skipped_reply = skipped
+        return skipped_task, skipped_reply, _build_agent_track(agent="normal", event="skip", task=skipped_task, reply=skipped_reply)
 
     tasks_context = environment.build_observation_view(
         task_limit=5,
@@ -604,52 +624,64 @@ def normal_node(
     task.status = result["task_status"]
     task.result = result["task_result"]
     reply = result["reply"]
-    return task, reply
+    return task, reply, _build_agent_track(agent="normal", event="execute", task=task, reply=reply)
 
 
-def functest_node(*, task: Task) -> tuple[Task, str]:
+def functest_node(*, task: Task) -> tuple[Task, str, list[dict[str, Any]]]:
     skipped = _try_skip_execute(task, stage="functest")
     if skipped is not None:
-        return skipped
+        skipped_task, skipped_reply = skipped
+        return skipped_task, skipped_reply, _build_agent_track(agent="functest", event="skip", task=skipped_task, reply=skipped_reply)
 
     result = run_functest_task(task_content=task.content)
     task.status = result["task_status"]
     task.result = result["task_result"]
-    return task, result["reply"]
+    reply = result["reply"]
+    return task, reply, _build_agent_track(agent="functest", event="execute", task=task, reply=reply)
 
 
-def accutest_node(*, task: Task) -> tuple[Task, str]:
+def accutest_node(*, task: Task) -> tuple[Task, str, list[dict[str, Any]]]:
     skipped = _try_skip_execute(task, stage="accutest")
     if skipped is not None:
-        return skipped
+        skipped_task, skipped_reply = skipped
+        return skipped_task, skipped_reply, _build_agent_track(agent="accutest", event="skip", task=skipped_task, reply=skipped_reply)
 
     result = run_accutest_task(task_content=task.content)
     task.status = result["task_status"]
     task.result = result["task_result"]
-    return task, result["reply"]
+    reply = result["reply"]
+    return task, reply, _build_agent_track(agent="accutest", event="execute", task=task, reply=reply)
 
 
-def perftest_node(*, task: Task) -> tuple[Task, str]:
+def perftest_node(*, task: Task) -> tuple[Task, str, list[dict[str, Any]]]:
     skipped = _try_skip_execute(task, stage="perftest")
     if skipped is not None:
-        return skipped
+        skipped_task, skipped_reply = skipped
+        return skipped_task, skipped_reply, _build_agent_track(agent="perftest", event="skip", task=skipped_task, reply=skipped_reply)
 
     result = run_perftest_task(task_content=task.content)
     task.status = result["task_status"]
     task.result = result["task_result"]
-    return task, result["reply"]
+    reply = result["reply"]
+    return task, reply, _build_agent_track(agent="perftest", event="execute", task=task, reply=reply)
 
 
 def update_node(
     environment: Environment,
     round_id: int,
     controller_trace: list[ControllerAction],
+    agent_track: list[dict[str, Any]],
     task: Task,
     reply: str,
 ) -> Environment:
+    track = _controller_trace_to_track(controller_trace)
+    for step in agent_track:
+        if isinstance(step, dict):
+            track.append(dict(step))
+
     environment.add_task(
         round_id=round_id,
-        controller_trace=controller_trace,
+        track=track,
         task=task,
         reply=reply,
     )

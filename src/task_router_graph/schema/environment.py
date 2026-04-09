@@ -1,10 +1,10 @@
 from __future__ import annotations
 
+import copy
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
 
-from .controller_action import ControllerAction
 from .round_record import RoundRecord
 from .task import Task
 from .task_record import TaskRecord
@@ -12,6 +12,14 @@ from .task_record import TaskRecord
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _clone_track(track: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    cloned: list[dict[str, Any]] = []
+    for item in track:
+        if isinstance(item, dict):
+            cloned.append(copy.deepcopy(item))
+    return cloned
 
 
 @dataclass
@@ -41,15 +49,14 @@ class Environment:
         self,
         *,
         round_id: int,
-        controller_trace: list[ControllerAction],
+        track: list[dict[str, Any]],
         task: Task,
         reply: str,
     ) -> TaskRecord:
         round_item = self._get_round_or_raise(round_id)
 
-        # Copy data before storing so external mutations do not taint history.
-        trace_copy = [ControllerAction.from_dict(item.to_dict()) for item in controller_trace]
         task_copy = Task.from_dict(task.to_dict())
+        track_copy = _clone_track(track)
 
         next_task_id = len(round_item.tasks) + 1
         task_copy.task_id = next_task_id
@@ -58,7 +65,7 @@ class Environment:
 
         record = TaskRecord(
             task_id=next_task_id,
-            controller_trace=trace_copy,
+            track=track_copy,
             task=task_copy,
             reply=reply,
         )
@@ -69,6 +76,50 @@ class Environment:
         self.updated_at = _now_iso()
         self._assert_round_consistency()
         return record
+
+    def get_last_failed_task_context(self) -> dict[str, Any] | None:
+        if not self.rounds:
+            return None
+
+        last_round = self.rounds[-1]
+        if not last_round.tasks:
+            return None
+
+        last_task = last_round.tasks[-1]
+        if str(last_task.task.status).strip().lower() != "failed":
+            return None
+
+        return {
+            "round_id": last_round.round_id,
+            "task_id": last_task.task_id,
+            "task": last_task.task.to_dict(),
+            "reply": last_task.reply,
+            "track": _clone_track(last_task.track),
+        }
+
+
+    def build_controller_input_view(self, *, default_task_limit: int = 5) -> dict[str, Any]:
+        failed_context = self.get_last_failed_task_context()
+
+        view = self.build_observation_view(
+            task_limit=None if failed_context is not None else default_task_limit,
+            include_user_input=True,
+            include_task=True,
+            include_reply=True,
+            include_trace=False,
+        )
+
+        if failed_context is None:
+            return view
+
+        view["previous_failed_task"] = {
+            "round_id": failed_context.get("round_id"),
+            "task_id": failed_context.get("task_id"),
+            "task": failed_context.get("task"),
+            "reply": failed_context.get("reply"),
+        }
+        view["previous_failed_track"] = failed_context.get("track", [])
+        return view
 
     def show_environment(self, *, show_trace: bool = False) -> str:
         self._assert_round_consistency()
@@ -100,14 +151,12 @@ class Environment:
                 lines.append(f"  reply: {task_item.reply}")
 
                 if show_trace:
-                    lines.append(f"  controller_trace_count: {len(task_item.controller_trace)}")
-                    for action in task_item.controller_trace:
-                        lines.append(
-                            "  - "
-                            f"{action.action_kind} | "
-                            f"tool={action.tool} | "
-                            f"reason={action.reason}"
-                        )
+                    lines.append(f"  track_count: {len(task_item.track)}")
+                    for step in task_item.track:
+                        agent = str(step.get("agent", "")) if isinstance(step, dict) else ""
+                        event = str(step.get("event", step.get("action_kind", ""))) if isinstance(step, dict) else ""
+                        reason = str(step.get("reason", "")) if isinstance(step, dict) else ""
+                        lines.append(f"  - agent={agent} event={event} reason={reason}")
 
             lines.append("------------------------------")
 
@@ -136,7 +185,7 @@ class Environment:
                 if include_user_input:
                     item["user_input"] = round_item.user_input
                 if include_trace:
-                    item["controller_trace"] = [action.to_dict() for action in task_item.controller_trace]
+                    item["track"] = _clone_track(task_item.track)
                 if include_task:
                     item["task"] = task_item.task.to_dict()
                 if include_reply:
@@ -164,7 +213,7 @@ class Environment:
                     "reply": task_item.reply,
                 }
                 if include_trace:
-                    item["controller_trace"] = [action.to_dict() for action in task_item.controller_trace]
+                    item["track"] = _clone_track(task_item.track)
                 tasks_payload.append(item)
 
             payload.append(

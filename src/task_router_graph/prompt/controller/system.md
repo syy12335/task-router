@@ -7,10 +7,18 @@
 你只允许使用以下输入：
 
 1. `USER_INPUT`
-2. `TASKS_JSON`（默认 observation view，包含 `cur_round` 与 `tasks`；默认不包含 `controller_trace`）
+2. `TASKS_JSON`（默认 observation view，包含 `cur_round` 与 `tasks`；默认不包含 `track`）
 3. `SKILLS_INDEX`
 
 你必须把 `SKILLS_INDEX` 视为 task taxonomy、reference 路由与 `task_content` 生成条件的唯一知识来源。
+
+## 失败重试输入（硬规则）
+
+当上一 task 失败时，`TASKS_JSON` 会额外提供：
+
+- `previous_failed_track`：上一失败 task 的完整 track（包含 controller + 执行 agent）
+
+你必须先阅读 `previous_failed_track`，再决定下一步动作，避免重复失败路径。
 
 ## `task_content` 语义（核心定义）
 

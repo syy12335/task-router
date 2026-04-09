@@ -18,11 +18,10 @@ class GraphState(TypedDict, total=False):
     # Graph 内部共享状态。
     case_id: str
     user_input: str
-    route_user_input: str
-    failed_reason: str
     failed_retry_count: int
     environment: Environment
     controller_trace: list[ControllerAction]
+    agent_track: list[dict[str, Any]]
     task: Task
     reply: str
     run_id: str
@@ -54,7 +53,7 @@ class TaskRouterGraph:
         self._compiled_graph = self._build_graph()
 
     def _build_graph(self) -> Any:
-        # 执行拓扑：init -> route -> execute -> update -> (failed_reason? -> route) / (done? END : route)
+        # 执行拓扑：init -> route -> execute -> update -> (done? END : route)
         builder: StateGraph = StateGraph(GraphState)
         builder.add_node("init", self._init_step)
         builder.add_node("route", self._route_step)
@@ -63,7 +62,6 @@ class TaskRouterGraph:
         builder.add_node("accutest", self._accutest_step)
         builder.add_node("perftest", self._perftest_step)
         builder.add_node("update", self._update_step)
-        builder.add_node("failed_replan", self._failed_reason_step)
 
         builder.add_edge(START, "init")
         builder.add_edge("init", "route")
@@ -86,11 +84,9 @@ class TaskRouterGraph:
             self._pick_after_update,
             {
                 "route": "route",
-                "failed_replan": "failed_replan",
                 "end": END,
             },
         )
-        builder.add_edge("failed_replan", "route")
 
         return builder.compile()
 
@@ -106,21 +102,17 @@ class TaskRouterGraph:
             "run_dir": str(run_dir),
             "task_turn": 0,
             "failed_retry_count": 0,
-            "failed_reason": "",
-            "route_user_input": state["user_input"],
             "round_id": round_item.round_id,
             "environment": environment,
         }
 
     def _route_step(self, state: GraphState) -> GraphState:
-        route_input = str(state.get("route_user_input", state["user_input"]))
-
         task, controller_trace = route_node(
             llm=self._llm,
             controller_system=self._controller_system,
             controller_skills_index=self._controller_skills_index,
             environment=state["environment"],
-            user_input=route_input,
+            user_input=state["user_input"],
             workspace_root=self.root,
             max_steps=self._max_controller_steps,
             invoke_config=self._build_llm_invoke_config(state=state, node="route"),
@@ -137,7 +129,7 @@ class TaskRouterGraph:
         return "normal"
 
     def _normal_step(self, state: GraphState) -> GraphState:
-        task, reply = normal_node(
+        task, reply, agent_track = normal_node(
             llm=self._llm,
             normal_system=self._normal_system,
             normal_skills_index=self._normal_skills_index,
@@ -145,114 +137,57 @@ class TaskRouterGraph:
             task=state["task"],
             invoke_config=self._build_llm_invoke_config(state=state, node="normal"),
         )
-        return {"task": task, "reply": reply}
+        return {"task": task, "reply": reply, "agent_track": agent_track}
 
     def _functest_step(self, state: GraphState) -> GraphState:
-        task, reply = functest_node(task=state["task"])
-        return {"task": task, "reply": reply}
+        task, reply, agent_track = functest_node(task=state["task"])
+        return {"task": task, "reply": reply, "agent_track": agent_track}
 
     def _accutest_step(self, state: GraphState) -> GraphState:
-        task, reply = accutest_node(task=state["task"])
-        return {"task": task, "reply": reply}
+        task, reply, agent_track = accutest_node(task=state["task"])
+        return {"task": task, "reply": reply, "agent_track": agent_track}
 
     def _perftest_step(self, state: GraphState) -> GraphState:
-        task, reply = perftest_node(task=state["task"])
-        return {"task": task, "reply": reply}
+        task, reply, agent_track = perftest_node(task=state["task"])
+        return {"task": task, "reply": reply, "agent_track": agent_track}
 
     def _update_step(self, state: GraphState) -> GraphState:
         environment = update_node(
             state["environment"],
             state["round_id"],
             state["controller_trace"],
+            state.get("agent_track", []),
             state["task"],
             state["reply"],
         )
+
+        failed_retry_count = int(state.get("failed_retry_count", 0))
+        if str(state["task"].status).strip().lower() == "failed":
+            failed_retry_count += 1
+
         return {
             "environment": environment,
             "task_turn": int(state.get("task_turn", 0)) + 1,
-            # 默认恢复为原始用户意图；失败分支会在 failed_reason 节点覆盖。
-            "route_user_input": state["user_input"],
+            "failed_retry_count": failed_retry_count,
         }
 
-    def _failed_reason_step(self, state: GraphState) -> GraphState:
-        retry_count = int(state.get("failed_retry_count", 0)) + 1
-        reason = self._build_failed_reason(
-            task=state["task"],
-            reply=state.get("reply", ""),
-            controller_trace=state.get("controller_trace", []),
-        )
-        retry_user_input = self._build_retry_user_input(
-            original_user_input=state["user_input"],
-            failed_reason=reason,
-            retry_count=retry_count,
-        )
-        return {
-            "failed_retry_count": retry_count,
-            "failed_reason": reason,
-            "route_user_input": retry_user_input,
-        }
-
-    def _pick_after_update(self, state: GraphState) -> Literal["route", "failed_replan", "end"]:
+    def _pick_after_update(self, state: GraphState) -> Literal["route", "end"]:
         task_status = str(state["task"].status).strip().lower()
         task_turn = int(state.get("task_turn", 0))
 
         if task_status == "done":
             return "end"
 
-        if task_status == "failed":
-            failed_retry_count = int(state.get("failed_retry_count", 0))
-            if task_turn >= self._max_task_turns:
-                return "end"
-            if failed_retry_count >= self._max_failed_retries:
-                return "end"
-            return "failed_replan"
-
         if task_turn >= self._max_task_turns:
             return "end"
 
+        if task_status == "failed":
+            failed_retry_count = int(state.get("failed_retry_count", 0))
+            if failed_retry_count >= self._max_failed_retries:
+                return "end"
+            return "route"
+
         return "route"
-
-    def _build_failed_reason(
-        self,
-        *,
-        task: Task,
-        reply: str,
-        controller_trace: list[ControllerAction],
-    ) -> str:
-        pieces: list[str] = []
-
-        task_type = str(task.type).strip() or "unknown"
-        task_content = str(task.content).strip()
-        # Strip previous retry scaffold to avoid recursive reason explosion.
-        scaffold_marker = "\n\n[系统补充-第"
-        if scaffold_marker in task_content:
-            task_content = task_content.split(scaffold_marker, 1)[0].strip()
-        task_result = str(task.result).strip()
-        reply_text = str(reply).strip()
-
-        pieces.append(f"任务类型: {task_type}")
-        if task_content:
-            pieces.append(f"任务目标: {task_content}")
-        if task_result:
-            pieces.append(f"失败结果: {task_result}")
-        if reply_text:
-            pieces.append(f"执行回复: {reply_text}")
-
-        if controller_trace:
-            last_action = controller_trace[-1]
-            last_reason = str(last_action.reason).strip()
-            if last_reason:
-                pieces.append(f"最近控制器动作原因: {last_reason}")
-
-        return "；".join(pieces)
-
-    def _build_retry_user_input(self, *, original_user_input: str, failed_reason: str, retry_count: int) -> str:
-        return (
-            f"{original_user_input}\n\n"
-            f"[系统补充-第{retry_count}次失败复盘]\n"
-            f"上一次任务失败，失败原因：{failed_reason}\n"
-            "请基于该失败原因重新生成更可执行的下一步 task。"
-        )
 
     def _build_llm_invoke_config(self, *, state: GraphState, node: str) -> dict[str, Any]:
         tags = ["task-router", "llm", f"node:{node}"]
@@ -288,7 +223,6 @@ class TaskRouterGraph:
         initial_state: GraphState = {
             "case_id": case_id,
             "user_input": user_input,
-            "route_user_input": user_input,
             "environment": environment or Environment(),
         }
         result_state = self._compiled_graph.invoke(
