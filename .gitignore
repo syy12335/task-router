@@ -1,4 +1,4 @@
-﻿# Python
+# Python
 __pycache__/
 *.pyc
 
@@ -6,8 +6,12 @@ __pycache__/
 .ipynb_checkpoints/
 
 # Runtime artifacts
-var/runs/run_*/
-var/logs/*.log
+var/**
+!var/
+!var/logs/
+!var/runs/
+!var/logs/.gitkeep
+!var/runs/.gitkeep
 
 # Local editor
 .vscode/
@@ -16,4 +20,3 @@ var/logs/*.log
 hf-cache
 model-cache
 *.log
-var/sglang.pid
