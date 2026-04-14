@@ -3,9 +3,50 @@ from __future__ import annotations
 import json
 from typing import Any, Callable
 
+from jsonschema import ValidationError, validate
 from langchain_core.messages import HumanMessage, SystemMessage
 
 from .common import extract_text, parse_json_object
+
+
+_CONTROLLER_ACTION_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "oneOf": [
+        {
+            "type": "object",
+            "properties": {
+                "action_kind": {"const": "observe"},
+                "tool": {"type": "string", "minLength": 1},
+                "args": {"type": "object"},
+                "reason": {"type": "string", "minLength": 1},
+            },
+            "required": ["action_kind", "tool", "args", "reason"],
+            "additionalProperties": False,
+        },
+        {
+            "type": "object",
+            "properties": {
+                "action_kind": {"const": "generate_task"},
+                "task_type": {
+                    "type": "string",
+                    "enum": ["normal", "functest", "accutest", "perftest"],
+                },
+                "task_content": {"type": "string", "minLength": 1},
+                "reason": {"type": "string", "minLength": 1},
+            },
+            "required": ["action_kind", "task_type", "task_content", "reason"],
+            "additionalProperties": False,
+        },
+    ],
+}
+
+_OUTPUT_CONSTRAINTS: dict[str, Any] = {
+    "output_format": "json_object",
+    "action_kind_enum": ["observe", "generate_task"],
+    "observe_required": ["action_kind", "tool", "args", "reason"],
+    "generate_task_required": ["action_kind", "task_type", "task_content", "reason"],
+    "forbid_additional_properties": True,
+}
 
 
 class ControllerRouteError(ValueError):
@@ -34,7 +75,7 @@ class ControllerAgent:
             tasks=tasks,
             skills_index=skills_index,
         )
-        llm = self.llm.bind(response_format={"type": "json_object"})
+        llm = self.llm.bind(response_format={"type": "json_schema", "json_schema": {"name": "controller_action", "strict": True, "schema": _CONTROLLER_ACTION_SCHEMA}})
 
         observations: list[dict[str, Any]] = []
 
@@ -54,6 +95,7 @@ class ControllerAgent:
                             {
                                 "step": step,
                                 "observations": observations,
+                                "output_constraints": _OUTPUT_CONSTRAINTS,
                             },
                             ensure_ascii=False,
                             indent=2,
@@ -67,22 +109,24 @@ class ControllerAgent:
             action = parse_json_object(text)
 
             action_kind = _normalize_action_kind(action)
-            if action_kind == "generate_task":
+            if action_kind in {"observe", "generate_task"}:
+                action["action_kind"] = action_kind
+
+            try:
+                _validate_controller_action(action)
+            except ValidationError as exc:
+                raise ControllerRouteError(
+                    f"Invalid controller action schema: {exc.message}",
+                    observations=observations,
+                ) from exc
+
+            if action["action_kind"] == "generate_task":
                 # 将当前 task 的 observe 轨迹附加到输出，供 graph 在 update 节点统一写入 environment。
-                action["action_kind"] = "generate_task"
                 action["controller_trace"] = observations
                 return action
 
-            if action_kind != "observe":
-                raise ControllerRouteError(
-                    f"Unexpected action_kind from controller-agent: {action_kind}",
-                    observations=observations,
-                )
-
             tool_name = str(action.get("tool", "")).strip()
             tool_args = action.get("args", {})
-            if not isinstance(tool_args, dict):
-                tool_args = {}
 
             tool = observe_tools.get(tool_name)
             if tool is None:
@@ -132,6 +176,10 @@ class ControllerAgent:
         rendered = _replace_last(rendered, "{{TASKS_JSON}}", json.dumps(tasks, ensure_ascii=False, indent=2))
         rendered = _replace_last(rendered, "{{SKILLS_INDEX}}", skills_index)
         return rendered
+
+
+def _validate_controller_action(action: dict[str, Any]) -> None:
+    validate(instance=action, schema=_CONTROLLER_ACTION_SCHEMA)
 
 
 def _replace_last(text: str, old: str, new: str) -> str:
