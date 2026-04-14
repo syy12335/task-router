@@ -3,6 +3,7 @@
 定位说明：本文是早期机制设计稿。
 当前运行时真实 schema 以 src/task_router_graph/schema/environment.py、docs/environment.md、docs/data_format.md 为准。
 Environment full state 口径固定为 rounds + cur_round + updated_at。
+注意：本文仅用于记录设计演进背景，不能作为当前 controller 行为或 RL 样本标注依据。
 
 ## 1. 核心机制
 
@@ -63,7 +64,6 @@ Environment full state 示例：
 - generate_task 时使用 task_type/task_content
 - 训练样本中的 environment 也应遵循 rounds + cur_round + updated_at
 
-
 ## 3. 失败重试设计记录（2026-04）
 
 ### 3.1 设计变更
@@ -73,13 +73,15 @@ Environment full state 示例：
   - controller 的 observe / generate_task 轨迹
   - 执行 agent（normal/functest/accutest/perftest）的执行结果轨迹
 
-### 3.2 controller 在 failed 后的输入策略
+### 3.2 controller failed-input strategy
 
-- `route_node` 不再手工组装 `previous_failed_track`。
-- 改为调用 Environment 内置方法 `build_controller_input_view(default_task_limit=5)`。
-- 当上一 task 为 failed 时，Environment 会自动输出：
-  - `previous_failed_task`（失败任务摘要）
-  - `previous_failed_track`（失败任务完整 track）
+- `route_node` no longer assembles `previous_failed_track` manually.
+- It always calls `build_controller_input_view(default_task_limit=5)`.
+- Semantics split:
+  - when the current last task is failed, `task_limit` is broadened to `None` (tasks are flattened across all rounds in this environment);
+  - when any failed task exists in current environment (cross-round), `TASKS_JSON` includes `previous_failed_task` summary.
+- `previous_failed_track` is never injected by default; it must be fetched explicitly.
+- `previous_failed_track` means: latest failed task in current environment (cross-round, not cross-run).
 
 ### 3.3 收益
 

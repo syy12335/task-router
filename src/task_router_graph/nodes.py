@@ -433,7 +433,7 @@ def failure_diagnosis_node(
     if str(task.status).strip().lower() != "failed":
         return environment, task
 
-    failed_context = environment.get_last_failed_task_context()
+    failed_context = environment.get_current_failed_task_context()
     if failed_context is None:
         return environment, task
 

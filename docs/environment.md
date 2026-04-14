@@ -8,7 +8,7 @@
 2. 一个 round 对应一次用户输入。
 3. 一个 round 内可有多个 task（重试会追加新 task）。
 4. `cur_round` 是 Environment 正式状态字段。
-5. `track` 统一记录 controller 与各执行/诊断/回复 agent 轨迹。
+5. `track` is the unified field for controller/executor/diagnoser/reply traces.
 6. observation view 是读取视图，不等于 Environment full state。
 
 ## 2. 数据模型
@@ -101,18 +101,22 @@
 
 ### build_controller_input_view(default_task_limit=5)
 
-controller 输入组装：
+controller input assembly:
 
-- 正常：最近 N 条无 trace 任务视图。
-- 若最近 task 为 failed：
-  - 自动放宽到当前 round 全量无 trace 视图；
-  - 仅附 `previous_failed_task` 摘要（不注入失败 track）。
+- normal path: recent N tasks without trace (`task_limit=default_task_limit`).
+- if current last task is failed:
+  - broaden to full no-trace view (`task_limit=None`);
+  - current implementation flattens tasks across all rounds in this environment.
+- if any failed task exists in current environment (cross-round):
+  - attach `previous_failed_task` summary into `TASKS_JSON` (track is still not injected).
 
-失败 track 若需要，必须通过 `previous_failed_track` 工具显式读取。
+failed track must be fetched explicitly via `previous_failed_track` tool.
+
 
 ### get_previous_failed_track_view()
 
-返回上一失败 task 的完整轨迹视图（用于 controller 失败重试纠偏）。
+returns the latest failed-task track in current environment (cross-round, not cross-run).
+
 
 ### show_environment(show_trace=True)
 
@@ -123,4 +127,5 @@ controller 输入组装：
 1. `reply` 字段等于最终用户回复：错误（最终回复来自 `output.reply`）。
 2. 失败轨迹默认注入 controller 输入：错误（需工具显式读取）。
 3. full state 与 observation view 混用：错误。
-
+4. 失败后 controller 只看当前 round：错误（当前实现在 failed 分支会读取所有 round 的 tasks 视图）。
+5. `previous_failed_track` is not limited to "current last task failed"; it returns the latest failed task in current environment.

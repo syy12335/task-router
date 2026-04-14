@@ -76,7 +76,17 @@ class Environment:
         self._assert_round_consistency()
         return record
 
-    def get_last_failed_task_context(self) -> dict[str, Any] | None:
+    def _build_task_context(self, *, round_item: RoundRecord, task_item: TaskRecord) -> dict[str, Any]:
+        return {
+            "round_id": round_item.round_id,
+            "task_id": task_item.task_id,
+            "task": task_item.task.to_dict(),
+            "reply": task_item.reply,
+            "track": _clone_track(task_item.track),
+        }
+
+    def get_current_failed_task_context(self) -> dict[str, Any] | None:
+        """Return context only when the current last task is failed (immediate retry scene)."""
         if not self.rounds:
             return None
 
@@ -88,13 +98,20 @@ class Environment:
         if str(last_task.task.status).strip().lower() != "failed":
             return None
 
-        return {
-            "round_id": last_round.round_id,
-            "task_id": last_task.task_id,
-            "task": last_task.task.to_dict(),
-            "reply": last_task.reply,
-            "track": _clone_track(last_task.track),
-        }
+        return self._build_task_context(round_item=last_round, task_item=last_task)
+
+    def get_last_failed_task_context(self) -> dict[str, Any] | None:
+        """Return the most recent failed task in this environment (cross-round, same run)."""
+        if not self.rounds:
+            return None
+
+        rounds_desc = sorted(self.rounds, key=lambda item: int(item.round_id), reverse=True)
+        for round_item in rounds_desc:
+            tasks_desc = sorted(round_item.tasks, key=lambda item: int(item.task_id), reverse=True)
+            for task_item in tasks_desc:
+                if str(task_item.task.status).strip().lower() == "failed":
+                    return self._build_task_context(round_item=round_item, task_item=task_item)
+        return None
 
 
     def append_last_task_track(self, *, track_item: dict[str, Any]) -> bool:
@@ -157,24 +174,26 @@ class Environment:
 
 
     def build_controller_input_view(self, *, default_task_limit: int = 5) -> dict[str, Any]:
-        failed_context = self.get_last_failed_task_context()
+        current_failed_context = self.get_current_failed_task_context()
+        previous_failed_context = self.get_last_failed_task_context()
 
         view = self.build_observation_view(
-            task_limit=None if failed_context is not None else default_task_limit,
+            # Keep immediate failed retry behavior: only broaden when current last task is failed.
+            task_limit=None if current_failed_context is not None else default_task_limit,
             include_user_input=True,
             include_task=True,
             include_reply=True,
             include_trace=False,
         )
 
-        if failed_context is None:
+        if previous_failed_context is None:
             return view
 
         view["previous_failed_task"] = {
-            "round_id": failed_context.get("round_id"),
-            "task_id": failed_context.get("task_id"),
-            "task": failed_context.get("task"),
-            "reply": failed_context.get("reply"),
+            "round_id": previous_failed_context.get("round_id"),
+            "task_id": previous_failed_context.get("task_id"),
+            "task": previous_failed_context.get("task"),
+            "reply": previous_failed_context.get("reply"),
         }
         return view
 
