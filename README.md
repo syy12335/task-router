@@ -23,6 +23,15 @@ python scripts/cases/run_case.py --config configs/graph.yaml --case data/cases/c
 python scripts/cases/run_case.py --config configs/graph.yaml --case data/cases/case_01.json
 ```
 
+CLI（不依赖 case 文件）：
+
+```bash
+python scripts/cases/run_cli.py --config configs/graph.yaml --input "帮我总结最近一次测试结果"
+
+# 或交互模式
+python scripts/cases/run_cli.py --config configs/graph.yaml --interactive
+```
+
 批量：
 
 ```bash
@@ -150,7 +159,7 @@ python scripts/cases/run_case.py --config configs/graph.yaml --case data/cases/c
 
 ## 代码位置
 
-- 入口：`scripts/cases/run_case.py`、`scripts/cases/run_cases.py`
+- 入口：`scripts/cases/run_case.py`、`scripts/cases/run_cli.py`、`scripts/cases/run_cases.py`
 - 配置：`configs/graph.yaml`
 - 核心：`src/task_router_graph/`
 - 设计文档：`docs/environment.md`、`docs/design.md`、`docs/data_format.md`
