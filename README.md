@@ -12,7 +12,7 @@ pip install -r requirements.txt
 export MODEL_PROVIDER=aliyun            # 或 sglang
 export API_KEY_Qwen=<your_key>          # aliyun 需要
 export SGLANG_API_KEY=EMPTY             # sglang 需要
-python scripts/cases/run_case.py --config configs/graph.yaml --case data/cases/case_01.json
+python scripts/run/run_case.py --config configs/graph.yaml --case data/cases/case_01.json
 ```
 
 ## 运行命令
@@ -20,28 +20,28 @@ python scripts/cases/run_case.py --config configs/graph.yaml --case data/cases/c
 单 case：
 
 ```bash
-python scripts/cases/run_case.py --config configs/graph.yaml --case data/cases/case_01.json
+python scripts/run/run_case.py --config configs/graph.yaml --case data/cases/case_01.json
 ```
 
 CLI（不依赖 case 文件）：
 
 ```bash
-python scripts/cases/run_cli.py --config configs/graph.yaml --input "帮我总结最近一次测试结果"
+python scripts/run/run_cli.py --config configs/graph.yaml --input "帮我总结最近一次测试结果"
 
 # 或交互模式
-python scripts/cases/run_cli.py --config configs/graph.yaml --interactive
+python scripts/run/run_cli.py --config configs/graph.yaml --interactive
 ```
 
 批量：
 
 ```bash
-python scripts/cases/run_cases.py --config configs/graph.yaml
+python scripts/run/run_cases.py --config configs/graph.yaml
 ```
 
 可视化：
 
 ```bash
-streamlit run scripts/cases/streamlit_app.py
+streamlit run scripts/run/streamlit_app.py
 ```
 
 ## Provider 切换规则
@@ -135,7 +135,7 @@ export LANGSMITH_PROJECT=task-router
 # CLI 程序短进程建议关闭后台回调，避免退出前 trace 未上报完成
 export LANGCHAIN_CALLBACKS_BACKGROUND=false
 
-python scripts/cases/run_case.py --config configs/graph.yaml --case data/cases/case_01.json
+python scripts/run/run_case.py --config configs/graph.yaml --case data/cases/case_01.json
 ```
 
 ### 你当前链接的项目建议
@@ -159,7 +159,7 @@ python scripts/cases/run_case.py --config configs/graph.yaml --case data/cases/c
 
 ## 代码位置
 
-- 入口：`scripts/cases/run_case.py`、`scripts/cases/run_cli.py`、`scripts/cases/run_cases.py`
+- 入口：`scripts/run/run_case.py`、`scripts/run/run_cli.py`、`scripts/run/run_cases.py`
 - 配置：`configs/graph.yaml`
 - 核心：`src/task_router_graph/`
 - 设计文档：`docs/environment.md`、`docs/design.md`、`docs/data_format.md`
