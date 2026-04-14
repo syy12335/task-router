@@ -8,7 +8,7 @@ from .agents import (
     ControllerRouteError,
     route_task,
     run_accutest_task,
-    run_failure_analysis_task,
+    run_failure_diagnosis_task,
     run_functest_task,
     run_normal_task,
     run_perftest_task,
@@ -713,10 +713,10 @@ def perftest_node(*, task: Task) -> tuple[Task, str, list[dict[str, Any]]]:
     return task, reply, _build_agent_track(agent="perftest", event="execute", task=task, reply=reply)
 
 
-def failure_analysis_node(
+def failure_diagnosis_node(
     *,
     llm: Any,
-    failure_analysis_system: str,
+    failure_diagnosis_system: str,
     environment: Environment,
     task: Task,
     invoke_config: dict[str, Any] | None = None,
@@ -740,9 +740,9 @@ def failure_analysis_node(
                 normalized_track.append(dict(step))
 
     try:
-        analysis = run_failure_analysis_task(
+        analysis = run_failure_diagnosis_task(
             llm=llm,
-            system_prompt=failure_analysis_system,
+            system_prompt=failure_diagnosis_system,
             task=failed_task_payload,
             track=normalized_track,
             invoke_config=invoke_config,
@@ -759,7 +759,7 @@ def failure_analysis_node(
     task.result = merged_result
 
     analyzer_track = {
-        "agent": "failure_analyzer",
+        "agent": "diagnoser",
         "event": "analyze",
         "task_status": "failed",
         "task_result": merged_result,

@@ -11,7 +11,7 @@ from typing_extensions import TypedDict
 from .llm import build_chat_model
 from .nodes import (
     accutest_node,
-    failure_analysis_node,
+    failure_diagnosis_node,
     functest_node,
     normal_node,
     perftest_node,
@@ -48,7 +48,7 @@ class TaskRouterGraph:
         self._llm = build_chat_model(self.config)
         self._controller_system = self._load_prompt("src/task_router_graph/prompt/controller/system.md")
         self._normal_system = self._load_prompt("src/task_router_graph/prompt/normal/system.md")
-        self._failure_analysis_system = self._load_prompt("src/task_router_graph/prompt/failure_analysis/system.md")
+        self._failure_diagnosis_system = self._load_prompt("src/task_router_graph/prompt/failure_diagnosis/system.md")
 
         self._controller_skills_index = self._load_skill_bundle("src/task_router_graph/skills/controller/INDEX.md")
         self._normal_skills_index = self._load_skill_bundle("src/task_router_graph/skills/normal/INDEX.md")
@@ -71,7 +71,7 @@ class TaskRouterGraph:
         builder.add_node("accutest", self._accutest_step)
         builder.add_node("perftest", self._perftest_step)
         builder.add_node("update", self._update_step)
-        builder.add_node("failure_analyze", self._failure_analyze_step)
+        builder.add_node("failure_diagnose", self._failure_diagnose_step)
 
         builder.add_edge(START, "init")
         builder.add_edge("init", "route")
@@ -93,12 +93,12 @@ class TaskRouterGraph:
             "update",
             self._pick_after_update,
             {
-                "failure_analyze": "failure_analyze",
+                "failure_diagnose": "failure_diagnose",
                 "route": "route",
                 "end": END,
             },
         )
-        builder.add_edge("failure_analyze", "route")
+        builder.add_edge("failure_diagnose", "route")
 
         return builder.compile()
 
@@ -163,13 +163,13 @@ class TaskRouterGraph:
         task, reply, agent_track = perftest_node(task=state["task"])
         return {"task": task, "reply": reply, "agent_track": agent_track}
 
-    def _failure_analyze_step(self, state: GraphState) -> GraphState:
-        environment, task = failure_analysis_node(
+    def _failure_diagnose_step(self, state: GraphState) -> GraphState:
+        environment, task = failure_diagnosis_node(
             llm=self._llm,
-            failure_analysis_system=self._failure_analysis_system,
+            failure_diagnosis_system=self._failure_diagnosis_system,
             environment=state["environment"],
             task=state["task"],
-            invoke_config=self._build_llm_invoke_config(state=state, node="failure_analyze"),
+            invoke_config=self._build_llm_invoke_config(state=state, node="failure_diagnose"),
         )
         return {
             "environment": environment,
@@ -196,7 +196,7 @@ class TaskRouterGraph:
             "failed_retry_count": failed_retry_count,
         }
 
-    def _pick_after_update(self, state: GraphState) -> Literal["failure_analyze", "route", "end"]:
+    def _pick_after_update(self, state: GraphState) -> Literal["failure_diagnose", "route", "end"]:
         task_status = str(state["task"].status).strip().lower()
         task_turn = int(state.get("task_turn", 0))
 
@@ -209,7 +209,7 @@ class TaskRouterGraph:
         if task_status == "failed":
             failed_retry_count = int(state.get("failed_retry_count", 0))
             if failed_retry_count <= self._max_failed_retries:
-                return "failure_analyze"
+                return "failure_diagnose"
             return "end"
 
         return "route"

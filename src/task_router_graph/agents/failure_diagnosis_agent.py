@@ -8,7 +8,7 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from .common import extract_text, parse_json_object
 
 
-class FailureAnalysisAgent:
+class FailureDiagnosisAgent:
     def __init__(self, *, llm: Any, system_prompt: str) -> None:
         self.llm = llm
         self.system_prompt = system_prompt
@@ -38,9 +38,9 @@ class FailureAnalysisAgent:
         text = extract_text(response.content if hasattr(response, "content") else str(response))
         payload = parse_json_object(text)
 
-        analysis = str(payload.get("failure_analysis", "")).strip()
+        analysis = str(payload.get("failure_diagnosis", "")).strip()
         if not analysis:
-            raise ValueError("failure_analysis is empty")
+            raise ValueError("failure_diagnosis is empty")
         return analysis
 
     def _render_system_prompt(self, *, task: dict[str, Any], track: list[dict[str, Any]]) -> str:
@@ -89,7 +89,7 @@ def _merge_invoke_config(
     return config
 
 
-def run_failure_analysis_task(
+def run_failure_diagnosis_task(
     *,
     llm: Any,
     system_prompt: str,
@@ -97,7 +97,7 @@ def run_failure_analysis_task(
     track: list[dict[str, Any]],
     invoke_config: dict[str, Any] | None = None,
 ) -> str:
-    return FailureAnalysisAgent(llm=llm, system_prompt=system_prompt).run(
+    return FailureDiagnosisAgent(llm=llm, system_prompt=system_prompt).run(
         task=task,
         track=track,
         invoke_config=invoke_config,
