@@ -32,7 +32,7 @@ python scripts/cases/run_cases.py --config configs/graph.yaml
 可视化：
 
 ```bash
-streamlit run app/streamlit_app.py
+streamlit run scripts/cases/streamlit_app.py
 ```
 
 ## Provider 切换规则
