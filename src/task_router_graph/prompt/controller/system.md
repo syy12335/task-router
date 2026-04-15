@@ -22,7 +22,7 @@
 
 - `read {"path":"..."}`
 - `ls {"path":"..."}`
-- `build_observation_view {"task_limit":3,"include_trace":false,"include_user_input":false,"include_task":true,"include_reply":false}`
+- `build_context_view {"task_limit":3,"include_trace":false,"include_user_input":false,"include_task":true,"include_reply":false}`
 - `previous_failed_track {}`
 - `beijing_time {}`
 - `web_search {"query":"...","limit":3}`
@@ -75,7 +75,7 @@
 ```json
 {
   "action_kind": "observe|generate_task",
-  "tool": "read|ls|previous_failed_track|build_observation_view|beijing_time|web_search",
+  "tool": "read|ls|previous_failed_track|build_context_view|beijing_time|web_search",
   "args": {},
   "task_type": "executor|functest|accutest|perftest",
   "task_content": "用户目标：...\\n任务限制：...",

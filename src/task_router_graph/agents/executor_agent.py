@@ -9,7 +9,7 @@ import yaml
 from jsonschema import ValidationError, validate
 
 from .agent_utils import extract_text, merge_invoke_config, parse_json_object, replace_last
-from .memory import AgentMemory, MemoryOptions
+from .memory import AgentMemory, ContextCompressionOptions
 
 
 _EXECUTOR_OBSERVE_READ_SCHEMA: dict[str, Any] = {
@@ -113,11 +113,11 @@ class ExecutorAgent:
         *,
         llm: Any,
         system_prompt: str,
-        memory_options: MemoryOptions | None = None,
+        context_options: ContextCompressionOptions | None = None,
     ) -> None:
         self.llm = llm
         self.system_prompt = system_prompt
-        self.memory_options = memory_options or MemoryOptions()
+        self.context_options = context_options or ContextCompressionOptions()
 
     def run(
         self,
@@ -152,7 +152,7 @@ class ExecutorAgent:
         memory = AgentMemory(
             llm=self.llm,
             system_prompt=rendered_system_prompt,
-            options=self.memory_options,
+            options=self.context_options,
         )
         observations: list[dict[str, Any]] = []
         read_calls = 0
@@ -167,7 +167,7 @@ class ExecutorAgent:
                 metadata={"executor_step": step},
             )
 
-            memory.maybe_compress(
+            memory.maybe_compress_context(
                 step=step,
                 recent_rounds_payload=recent_rounds_payload,
                 invoke_config=step_invoke_config,
@@ -244,7 +244,7 @@ class ExecutorAgent:
                 if isinstance(observation_result, str)
                 else json.dumps(observation_result, ensure_ascii=False, indent=2)
             )
-            observation_text = memory.trim_large_tool_result(
+            observation_text = memory.trim_tool_observation(
                 raw_result=observation_text,
                 task_text=task_content,
                 user_text=json.dumps(tasks, ensure_ascii=False),
@@ -398,7 +398,7 @@ def run_executor_task(
     invoke_config: dict[str, Any] | None = None,
     workspace_root: str | Path | None = None,
     executor_skills_root: str = "src/task_router_graph/skills/executor",
-    memory_options: MemoryOptions | None = None,
+    context_options: ContextCompressionOptions | None = None,
     recent_rounds_payload: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     resolved_executor_skills_index = str(executor_skills_index or "").strip()
@@ -410,7 +410,7 @@ def run_executor_task(
     return ExecutorAgent(
         llm=llm,
         system_prompt=system_prompt,
-        memory_options=memory_options,
+        context_options=context_options,
     ).run(
         task_content=task_content,
         tasks=tasks,

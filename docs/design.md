@@ -47,7 +47,7 @@ init
 
 - 只负责：`observe` / `generate_task`
 - 输出：`Task + controller_trace`
-- 观察工具含：`read`、`ls`、`build_observation_view`、`previous_failed_track`、`beijing_time`、`web_search`
+- 观察工具含：`read`、`ls`、`build_context_view`、`previous_failed_track`、`beijing_time`、`web_search`
 - 当前版本对 observe 参数执行 schema 约束（例如 `read/ls` 必须包含 `path`）
 - LLM 输入通过 agent memory 组装；在超窗时可触发压缩
 

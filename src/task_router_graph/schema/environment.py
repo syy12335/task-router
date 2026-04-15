@@ -238,25 +238,25 @@ class Environment:
         }
 
 
-    def build_controller_input_view(
+    def build_controller_context(
         self,
         *,
         default_task_limit: int = 5,
-        compact: bool = False,
-        compact_target_tokens: int | None = None,
+        compress: bool = False,
+        compress_target_tokens: int | None = None,
     ) -> dict[str, Any]:
         current_failed_context = self.get_current_failed_task_context()
         previous_failed_context = self.get_last_failed_task_context()
 
-        view = self.build_observation_view(
+        view = self.build_context_view(
             # Keep immediate failed retry behavior: only broaden when current last task is failed.
             task_limit=None if current_failed_context is not None else default_task_limit,
             include_user_input=True,
             include_task=True,
             include_reply=True,
             include_trace=False,
-            compact=compact,
-            compact_target_tokens=compact_target_tokens,
+            compress=compress,
+            compress_target_tokens=compress_target_tokens,
         )
 
         tasks_payload = view.get("tasks")
@@ -281,8 +281,8 @@ class Environment:
                 previous_task_payload["result"] = ""
             else:
                 previous_task_payload["result"] = _strip_failure_analysis_suffix(previous_task_payload.get("result", ""))
-            if compact:
-                target = _safe_target_tokens(compact_target_tokens)
+            if compress:
+                target = _safe_target_tokens(compress_target_tokens)
                 previous_task_payload["result"] = _compact_text_value(previous_task_payload.get("result", ""), target_tokens=target)
 
         view["previous_failed_task"] = {
@@ -344,7 +344,7 @@ class Environment:
 
         return "\n".join(lines)
 
-    def build_observation_view(
+    def build_context_view(
         self,
         *,
         task_limit: int | None = 5,
@@ -352,14 +352,14 @@ class Environment:
         include_task: bool = True,
         include_reply: bool = True,
         include_trace: bool = False,
-        compact: bool = False,
-        compact_target_tokens: int | None = None,
+        compress: bool = False,
+        compress_target_tokens: int | None = None,
     ) -> dict[str, Any]:
         self._assert_round_consistency()
 
         # Default read view for AI: cur_round + flattened task items.
         tasks_payload: list[dict[str, object]] = []
-        target_tokens = _safe_target_tokens(compact_target_tokens)
+        target_tokens = _safe_target_tokens(compress_target_tokens)
 
         for round_item in self.rounds:
             for task_item in round_item.tasks:
@@ -371,17 +371,17 @@ class Environment:
                     item["user_input"] = round_item.user_input
                 if include_trace:
                     track_payload = _clone_track(task_item.track)
-                    if compact:
+                    if compress:
                         track_payload = _compact_track(track_payload, target_tokens=target_tokens)
                     item["track"] = track_payload
                 if include_task:
                     task_payload = task_item.task.to_dict()
-                    if compact:
+                    if compress:
                         task_payload["result"] = _compact_text_value(task_payload.get("result", ""), target_tokens=target_tokens)
                     item["task"] = task_payload
                 if include_reply:
                     reply_value = str(task_item.reply)
-                    if compact:
+                    if compress:
                         reply_value = _compact_text_value(reply_value, target_tokens=target_tokens)
                     item["reply"] = reply_value
                 tasks_payload.append(item)

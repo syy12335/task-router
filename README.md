@@ -65,9 +65,9 @@ model:
 runtime:
   max_task_turns: 4
   max_failed_retries: 3
-  memory_enabled: true
-  memory_max_window_tokens: 3000
-  environment_view_compact_enabled: false
+  context_enabled: true
+  context_window_tokens: 3000
+  context_view_target_tokens: 600
 ```
 
 设置模型后端：

@@ -4,7 +4,7 @@ import json
 from typing import Any
 
 from .agent_utils import extract_text, merge_invoke_config, parse_json_object, replace_last
-from .memory import AgentMemory, MemoryOptions
+from .memory import AgentMemory, ContextCompressionOptions
 
 
 _FAILURE_DIAGNOSIS_OUTPUT_SCHEMA: dict[str, Any] = {
@@ -18,10 +18,10 @@ _FAILURE_DIAGNOSIS_OUTPUT_SCHEMA: dict[str, Any] = {
 
 
 class FailureDiagnosisAgent:
-    def __init__(self, *, llm: Any, system_prompt: str, memory_options: MemoryOptions | None = None) -> None:
+    def __init__(self, *, llm: Any, system_prompt: str, context_options: ContextCompressionOptions | None = None) -> None:
         self.llm = llm
         self.system_prompt = system_prompt
-        self.memory_options = memory_options or MemoryOptions()
+        self.context_options = context_options or ContextCompressionOptions()
 
     def run(
         self,
@@ -51,10 +51,10 @@ class FailureDiagnosisAgent:
         memory = AgentMemory(
             llm=self.llm,
             system_prompt=rendered_system_prompt,
-            options=self.memory_options,
+            options=self.context_options,
         )
         memory.append_user("请只输出一个合法 JSON 对象，不要输出解释或 Markdown。")
-        memory.maybe_compress(step=1, recent_rounds_payload=recent_rounds_payload, invoke_config=step_invoke_config)
+        memory.maybe_compress_context(step=1, recent_rounds_payload=recent_rounds_payload, invoke_config=step_invoke_config)
         response = llm.invoke(memory.to_langchain_messages(), config=step_invoke_config)
 
         text = extract_text(response.content if hasattr(response, "content") else str(response))
@@ -79,13 +79,13 @@ def run_failure_diagnosis_task(
     task: dict[str, Any],
     track: list[dict[str, Any]],
     invoke_config: dict[str, Any] | None = None,
-    memory_options: MemoryOptions | None = None,
+    context_options: ContextCompressionOptions | None = None,
     recent_rounds_payload: list[dict[str, Any]] | None = None,
 ) -> str:
     return FailureDiagnosisAgent(
         llm=llm,
         system_prompt=system_prompt,
-        memory_options=memory_options,
+        context_options=context_options,
     ).run(
         task=task,
         track=track,

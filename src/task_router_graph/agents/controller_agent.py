@@ -8,7 +8,7 @@ from typing import Any, Callable
 from jsonschema import ValidationError, validate
 
 from .agent_utils import extract_text, merge_invoke_config, parse_json_object, replace_last
-from .memory import AgentMemory, MemoryOptions
+from .memory import AgentMemory, ContextCompressionOptions
 
 
 _OBSERVE_READ_SCHEMA: dict[str, Any] = {
@@ -53,7 +53,7 @@ _OBSERVE_BUILD_VIEW_SCHEMA: dict[str, Any] = {
     "type": "object",
     "properties": {
         "action_kind": {"const": "observe"},
-        "tool": {"const": "build_observation_view"},
+        "tool": {"const": "build_context_view"},
         "args": {
             "type": "object",
             "properties": {
@@ -62,6 +62,8 @@ _OBSERVE_BUILD_VIEW_SCHEMA: dict[str, Any] = {
                 "include_task": {"type": ["boolean", "integer", "string"]},
                 "include_reply": {"type": ["boolean", "integer", "string"]},
                 "include_trace": {"type": ["boolean", "integer", "string"]},
+                "compress": {"type": ["boolean", "integer", "string"]},
+                "compress_target_tokens": {"type": ["integer", "null"], "minimum": 80},
             },
             "additionalProperties": False,
         },
@@ -156,7 +158,7 @@ _OUTPUT_CONSTRAINTS: dict[str, Any] = {
     "observe_tool_enum": [
         "read",
         "ls",
-        "build_observation_view",
+        "build_context_view",
         "previous_failed_track",
         "beijing_time",
         "web_search",
@@ -166,7 +168,7 @@ _OUTPUT_CONSTRAINTS: dict[str, Any] = {
     "observe_tool_args_required": {
         "read": ["path"],
         "ls": ["path"],
-        "build_observation_view": [],
+        "build_context_view": [],
         "previous_failed_track": [],
         "beijing_time": [],
         "web_search": ["query"],
@@ -187,12 +189,12 @@ class ControllerAgent:
         llm: Any,
         system_prompt: str,
         max_steps: int = 3,
-        memory_options: MemoryOptions | None = None,
+        context_options: ContextCompressionOptions | None = None,
     ) -> None:
         self.llm = llm
         self.system_prompt = system_prompt
         self.max_steps = max_steps
-        self.memory_options = memory_options or MemoryOptions()
+        self.context_options = context_options or ContextCompressionOptions()
 
     def run(
         self,
@@ -223,7 +225,7 @@ class ControllerAgent:
         memory = AgentMemory(
             llm=self.llm,
             system_prompt=rendered_system_prompt,
-            options=self.memory_options,
+            options=self.context_options,
         )
         observations: list[dict[str, Any]] = []
 
@@ -234,7 +236,7 @@ class ControllerAgent:
                 tags=["task-router", "controller", f"controller-step:{step}"],
                 metadata={"controller_step": step},
             )
-            memory.maybe_compress(
+            memory.maybe_compress_context(
                 step=step,
                 recent_rounds_payload=recent_rounds_payload,
                 invoke_config=step_invoke_config,
@@ -296,7 +298,7 @@ class ControllerAgent:
                 if isinstance(observation_result, str)
                 else json.dumps(observation_result, ensure_ascii=False, indent=2)
             )
-            observation_text = memory.trim_large_tool_result(
+            observation_text = memory.trim_tool_observation(
                 raw_result=observation_text,
                 task_text=user_input,
                 user_text=json.dumps(tasks, ensure_ascii=False),
@@ -425,7 +427,7 @@ def route_task(
     invoke_config: dict[str, Any] | None = None,
     workspace_root: str | Path | None = None,
     skills_root: str = "src/task_router_graph/skills/controller",
-    memory_options: MemoryOptions | None = None,
+    context_options: ContextCompressionOptions | None = None,
     recent_rounds_payload: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     resolved_skills_index = str(skills_index or "").strip()
@@ -439,7 +441,7 @@ def route_task(
         llm=llm,
         system_prompt=system_prompt,
         max_steps=max_steps,
-        memory_options=memory_options,
+        context_options=context_options,
     ).run(
         user_input=user_input,
         tasks=tasks,

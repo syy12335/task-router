@@ -19,7 +19,7 @@ from .agents import (
     run_executor_task,
     run_reply_task,
 )
-from .agents.memory import MemoryOptions
+from .agents.memory import ContextCompressionOptions
 from .agents.async_workflows import (
     run_accutest_async_workflow,
     run_functest_async_workflow,
@@ -134,7 +134,7 @@ def _tool_ls(*, workspace_root: Path, path: str = "") -> str:
     return "\n".join(entries[:MAX_LIST_ENTRIES])
 
 
-def _tool_build_observation_view(
+def _tool_build_context_view(
     *,
     environment: Environment,
     task_limit: int | None = 5,
@@ -142,15 +142,15 @@ def _tool_build_observation_view(
     include_task: bool = True,
     include_reply: bool = True,
     include_trace: bool = False,
-    compact: bool = False,
-    compact_target_tokens: int | None = None,
+    compress: bool = False,
+    compress_target_tokens: int | None = None,
     **_: Any,
 ) -> str:
     include_trace_value = _to_bool(include_trace)
     include_user_input_value = _to_bool(include_user_input)
     include_task_value = _to_bool(include_task)
     include_reply_value = _to_bool(include_reply)
-    compact_value = _to_bool(compact)
+    compress_value = _to_bool(compress)
 
     if task_limit is None:
         task_limit_value: int | None = None
@@ -164,14 +164,14 @@ def _tool_build_observation_view(
         max_limit = MAX_OBSERVATION_VIEW_WITH_TRACE_TASKS if include_trace_value else MAX_OBSERVATION_VIEW_TASKS
         task_limit_value = max(1, min(max_limit, task_limit_value))
 
-    payload = environment.build_observation_view(
+    payload = environment.build_context_view(
         task_limit=task_limit_value,
         include_user_input=include_user_input_value,
         include_task=include_task_value,
         include_reply=include_reply_value,
         include_trace=include_trace_value,
-        compact=compact_value,
-        compact_target_tokens=compact_target_tokens,
+        compress=compress_value,
+        compress_target_tokens=compress_target_tokens,
     )
 
     if include_trace_value:
@@ -196,7 +196,7 @@ def _build_observe_tools(*, workspace_root: Path, environment: Environment) -> d
             workspace_root=workspace_root,
             **_sanitize_tool_kwargs(kwargs, reserved={"workspace_root", "environment"}),
         ),
-        "build_observation_view": lambda **kwargs: _tool_build_observation_view(
+        "build_context_view": lambda **kwargs: _tool_build_context_view(
             environment=environment,
             **_sanitize_tool_kwargs(kwargs, reserved={"workspace_root", "environment"}),
         ),
@@ -298,14 +298,14 @@ def route_node(
     workspace_root: Path,
     max_steps: int,
     invoke_config: dict[str, Any] | None = None,
-    memory_options: MemoryOptions | None = None,
-    environment_view_compact: bool = False,
-    environment_view_compact_target_tokens: int | None = None,
+    context_options: ContextCompressionOptions | None = None,
+    environment_context_compress: bool = False,
 ) -> tuple[Task, list[ControllerAction]]:
-    tasks_context = environment.build_controller_input_view(
+    context_options = context_options or ContextCompressionOptions()
+    tasks_context = environment.build_controller_context(
         default_task_limit=5,
-        compact=environment_view_compact,
-        compact_target_tokens=environment_view_compact_target_tokens,
+        compress=environment_context_compress,
+        compress_target_tokens=context_options.view_target_tokens,
     )
 
     observe_tools = _build_observe_tools(workspace_root=workspace_root, environment=environment)
@@ -323,7 +323,7 @@ def route_node(
             invoke_config=invoke_config,
             workspace_root=workspace_root,
             skills_root=controller_skills_root,
-            memory_options=memory_options,
+            context_options=context_options,
             recent_rounds_payload=recent_rounds_payload,
         )
     except ControllerRouteError as exc:
@@ -374,24 +374,24 @@ def executor_node(
     task: Task,
     max_steps: int = 4,
     invoke_config: dict[str, Any] | None = None,
-    memory_options: MemoryOptions | None = None,
-    environment_view_compact: bool = False,
-    environment_view_compact_target_tokens: int | None = None,
+    context_options: ContextCompressionOptions | None = None,
+    environment_context_compress: bool = False,
 ) -> tuple[Task, str, list[dict[str, Any]]]:
+    context_options = context_options or ContextCompressionOptions()
     skipped = _try_skip_execute(task, stage="executor")
     if skipped is not None:
         skipped_task, skipped_reply = skipped
         return skipped_task, skipped_reply, _build_executor_track(executor="executor", event="skip", task=skipped_task)
 
     # 注入最近任务摘要，减少“信息不足”导致的无谓失败。
-    tasks_context = environment.build_observation_view(
+    tasks_context = environment.build_context_view(
         task_limit=3,
         include_user_input=False,
         include_task=True,
         include_reply=False,
         include_trace=False,
-        compact=environment_view_compact,
-        compact_target_tokens=environment_view_compact_target_tokens,
+        compress=environment_context_compress,
+        compress_target_tokens=context_options.view_target_tokens,
     )
     recent_rounds_payload = environment.build_rounds_view(include_trace=False)
     executor_tools = _build_executor_tools(workspace_root=workspace_root)
@@ -406,7 +406,7 @@ def executor_node(
         invoke_config=invoke_config,
         workspace_root=workspace_root,
         executor_skills_root=executor_skills_root,
-        memory_options=memory_options,
+        context_options=context_options,
         recent_rounds_payload=recent_rounds_payload,
     )
     task.status = str(result.get("task_status", "")).strip()
@@ -473,8 +473,9 @@ def failure_diagnosis_node(
     environment: Environment,
     task: Task,
     invoke_config: dict[str, Any] | None = None,
-    memory_options: MemoryOptions | None = None,
+    context_options: ContextCompressionOptions | None = None,
 ) -> tuple[Environment, Task]:
+    context_options = context_options or ContextCompressionOptions()
     if str(task.status).strip().lower() != "failed":
         return environment, task
 
@@ -500,7 +501,7 @@ def failure_diagnosis_node(
             task=failed_task_payload,
             track=normalized_track,
             invoke_config=invoke_config,
-            memory_options=memory_options,
+            context_options=context_options,
             recent_rounds_payload=environment.build_rounds_view(include_trace=False),
         )
     except Exception as exc:
@@ -540,18 +541,18 @@ def reply_node(
     user_input: str,
     task: Task,
     invoke_config: dict[str, Any] | None = None,
-    memory_options: MemoryOptions | None = None,
-    environment_view_compact: bool = False,
-    environment_view_compact_target_tokens: int | None = None,
+    context_options: ContextCompressionOptions | None = None,
+    environment_context_compress: bool = False,
 ) -> str:
-    environment_view = environment.build_observation_view(
+    context_options = context_options or ContextCompressionOptions()
+    environment_view = environment.build_context_view(
         task_limit=None,
         include_user_input=True,
         include_task=True,
         include_reply=True,
         include_trace=False,
-        compact=environment_view_compact,
-        compact_target_tokens=environment_view_compact_target_tokens,
+        compress=environment_context_compress,
+        compress_target_tokens=context_options.view_target_tokens,
     )
 
     try:
@@ -562,7 +563,7 @@ def reply_node(
             final_task=task.to_dict(),
             environment_view=environment_view,
             invoke_config=invoke_config,
-            memory_options=memory_options,
+            context_options=context_options,
             recent_rounds_payload=environment.build_rounds_view(include_trace=False),
         )
     except Exception:

@@ -362,7 +362,7 @@ PySkill 失败结束：
 
 ### 7.3 可读视图要暴露最近进展
 
-后续在 `build_observation_view()` 或 `show_environment()` 中，最好能让最近一条 heartbeat / workflow_step 可见。
+后续在 `build_context_view()` 或 `show_environment()` 中，最好能让最近一条 heartbeat / workflow_step 可见。
 
 这样 controller、reply、CLI、streamlit 才能看到：
 

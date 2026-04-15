@@ -19,7 +19,7 @@
    - 禁止先目录探索。
 
 2. 缺当前 environment 事实（本轮/本会话任务摘要、失败轨迹）：
-   - 优先 `build_observation_view`。
+   - 优先 `build_context_view`。
    - 失败重试优先 `previous_failed_track`。
    - 只有路径明确且工具结果不足时，才允许 `read/ls` 文件系统。
 
@@ -27,7 +27,7 @@
 
 - `read {"path":"..."}`
 - `ls {"path":"..."}`
-- `build_observation_view {"task_limit":3,"include_trace":false,"include_user_input":false,"include_task":false,"include_reply":false}`
+- `build_context_view {"task_limit":3,"include_trace":false,"include_user_input":false,"include_task":false,"include_reply":false}`
 - `previous_failed_track {}`
 - `beijing_time {}`
 - `web_search {"query":"...","limit":3}`
@@ -58,11 +58,11 @@
 
 3. 场景：总结当前会话最近一次测试结果（executor）
    - 输入示例：`请总结上一次测试结果并给出下一步建议`
-   - 步骤：`read executor-task.md` -> `build_observation_view(task_limit=3, include_task=true)` -> `generate_task(executor)`
+   - 步骤：`read executor-task.md` -> `build_context_view(task_limit=3, include_task=true)` -> `generate_task(executor)`
 
 4. 场景：解释当前会话上一轮 accutest（executor）
    - 输入示例：`请解释上一轮 accutest 的评分含义`
-   - 步骤：`read executor-task.md` -> `build_observation_view(task_limit=5, include_task=true)` -> `generate_task(executor)`
+   - 步骤：`read executor-task.md` -> `build_context_view(task_limit=5, include_task=true)` -> `generate_task(executor)`
 
 5. 场景：基于失败点复测（functest）
    - 输入示例：`基于上轮失败点再做一次功能复测`
@@ -70,10 +70,10 @@
 
 ## 轨迹成本提醒
 
-- `build_observation_view(include_trace=true)` 会显著增加上下文体积。
+- `build_context_view(include_trace=true)` 会显著增加上下文体积。
 - sub agent 的轨迹不一定有价值，但上下文开销通常很大，必要时才使用。
 
-## build_observation_view 的推荐参数
+## build_context_view 的推荐参数
 
 - 因 `USER_INPUT` 与 `TASKS_JSON` 已注入，默认：`include_user_input=false`、`include_task=false`、`include_reply=false`。
 - 仅在必要时启用：`include_trace=true`。

@@ -79,16 +79,17 @@ def _pick_middle_snippets(
 
 
 @dataclass
-class MemoryOptions:
+class ContextCompressionOptions:
     enabled: bool = True
-    max_window_tokens: int = 3000
-    compress_target_tokens: int = 700
-    min_step_for_compress: int = 2
-    recent_k_rounds: int = 2
+    window_tokens: int = 3000
+    summary_target_tokens: int = 700
+    summary_min_step: int = 2
+    recent_rounds: int = 2
     tool_trim_head_chars: int = 800
     tool_trim_tail_chars: int = 800
     tool_mid_hits_max: int = 6
     tool_mid_hit_chars: int = 240
+    view_target_tokens: int = 600
 
 
 class AgentMemory:
@@ -97,7 +98,7 @@ class AgentMemory:
         *,
         llm: Any,
         system_prompt: str,
-        options: MemoryOptions,
+        options: ContextCompressionOptions,
     ) -> None:
         self.llm = llm
         self.options = options
@@ -114,7 +115,7 @@ class AgentMemory:
     def append_tool(self, content: str) -> None:
         self.messages.append({"role": "tool", "content": str(content)})
 
-    def trim_large_tool_result(
+    def trim_tool_observation(
         self,
         *,
         raw_result: str,
@@ -127,7 +128,7 @@ class AgentMemory:
             return ""
 
         token_est = _estimate_tokens(text)
-        if token_est <= max(1, int(self.options.max_window_tokens / 3)):
+        if token_est <= max(1, int(self.options.window_tokens / 3)):
             return text
 
         head_n = max(64, int(self.options.tool_trim_head_chars))
@@ -159,7 +160,7 @@ class AgentMemory:
     def estimated_tokens(self) -> int:
         return sum(_estimate_tokens(str(item.get("content", ""))) for item in self.messages)
 
-    def maybe_compress(
+    def maybe_compress_context(
         self,
         *,
         step: int,
@@ -168,11 +169,11 @@ class AgentMemory:
     ) -> bool:
         if not self.options.enabled:
             return False
-        if step < max(1, int(self.options.min_step_for_compress)):
+        if step < max(1, int(self.options.summary_min_step)):
             return False
         if step == self._last_compress_step:
             return False
-        if self.estimated_tokens() <= max(200, int(self.options.max_window_tokens)):
+        if self.estimated_tokens() <= max(200, int(self.options.window_tokens)):
             return False
 
         compressible = [item for item in self.messages if item.get("role") != "system"]
@@ -180,13 +181,13 @@ class AgentMemory:
             return False
 
         recent_rounds_payload = recent_rounds_payload or []
-        rounds_tail = recent_rounds_payload[-max(1, int(self.options.recent_k_rounds)) :]
+        rounds_tail = recent_rounds_payload[-max(1, int(self.options.recent_rounds)) :]
 
         llm = self.llm.bind(
             response_format={
                 "type": "json_schema",
                 "json_schema": {
-                    "name": "memory_summary",
+                    "name": "context_summary",
                     "strict": True,
                     "schema": _SUMMARY_OUTPUT_SCHEMA,
                 },
@@ -195,7 +196,7 @@ class AgentMemory:
 
         prompt_payload = {
             "goal": "Compress conversation memory while keeping task-critical facts, constraints, tool evidence, and open issues.",
-            "target_tokens": int(self.options.compress_target_tokens),
+            "target_tokens": int(self.options.summary_target_tokens),
             "recent_rounds": rounds_tail,
             "messages": compressible,
         }
@@ -221,7 +222,7 @@ class AgentMemory:
         self.private_summary = summary
         system_prompt = str(self.messages[0].get("content", ""))
         self.messages = [{"role": "system", "content": system_prompt}]
-        self.messages.append({"role": "assistant", "content": f"[MEMORY_SUMMARY]\n{summary}"})
+        self.messages.append({"role": "assistant", "content": f"[CONTEXT_SUMMARY]\n{summary}"})
         self._last_compress_step = step
         return True
 

@@ -76,7 +76,7 @@ Environment full state 示例：
 ### 3.2 controller failed-input strategy
 
 - `route_node` no longer assembles `previous_failed_track` manually.
-- It always calls `build_controller_input_view(default_task_limit=5)`.
+- It always calls `build_controller_context(default_task_limit=5)`.
 - Semantics split:
   - when the current last task is failed, `task_limit` is broadened to `None` (tasks are flattened across all rounds in this environment);
   - when any failed task exists in current environment (cross-round), `TASKS_JSON` includes `previous_failed_task` summary.

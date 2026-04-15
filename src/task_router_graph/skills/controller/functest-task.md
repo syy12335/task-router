@@ -55,7 +55,7 @@
 步骤：
 
 1. `read functest-task.md`
-2. 必要时 `build_observation_view` 读取当前 environment 摘要
+2. 必要时 `build_context_view` 读取当前 environment 摘要
 3. 明确对象后 `generate_task(functest)`
 
 ## 3. `task_content` 生成原则

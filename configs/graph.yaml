@@ -33,14 +33,13 @@ runtime:
   max_executor_steps: 4
   default_task_type: executor
   max_failed_retries: 3
-  memory_enabled: true
-  memory_max_window_tokens: 3000
-  memory_compress_target_tokens: 700
-  memory_min_step_for_compress: 2
-  memory_recent_k_rounds: 2
-  memory_tool_trim_head_chars: 800
-  memory_tool_trim_tail_chars: 800
-  memory_tool_mid_hits_max: 6
-  memory_tool_mid_hit_chars: 240
-  environment_view_compact_enabled: false
-  environment_view_compact_target_tokens: 600
+  context_enabled: true
+  context_window_tokens: 3000
+  context_summary_target_tokens: 700
+  context_summary_min_step: 2
+  context_recent_rounds: 2
+  context_tool_trim_head_chars: 800
+  context_tool_trim_tail_chars: 800
+  context_tool_mid_hits_max: 6
+  context_tool_mid_hit_chars: 240
+  context_view_target_tokens: 600

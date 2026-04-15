@@ -137,7 +137,7 @@
 
 补充：
 
-- 读取视图支持 `compact=true`（见 `Environment.build_observation_view`）。
+- 读取视图支持 `compress=true`（见 `Environment.build_context_view`）。
 - `compact` 仅影响模型读取文本，不改变 `environment.json` 的持久化结构。
 
 ## 5. 关键结论

@@ -15,7 +15,7 @@ from .agents.async_workflows import (
     run_functest_async_workflow,
     run_perftest_async_workflow,
 )
-from .agents.memory import MemoryOptions
+from .agents.memory import ContextCompressionOptions
 from .llm import build_chat_model
 from .nodes import (
     failure_diagnosis_node,
@@ -70,19 +70,19 @@ class TaskRouterGraph:
         default_task_type = str(runtime_cfg.get("default_task_type", "executor")).strip().lower()
         self._default_task_type = default_task_type if default_task_type in {"executor", "functest", "accutest", "perftest"} else "executor"
         self._max_executor_steps = int(runtime_cfg.get("max_executor_steps", 4))
-        self._memory_options = MemoryOptions(
-            enabled=bool(runtime_cfg.get("memory_enabled", True)),
-            max_window_tokens=int(runtime_cfg.get("memory_max_window_tokens", 3000)),
-            compress_target_tokens=int(runtime_cfg.get("memory_compress_target_tokens", 700)),
-            min_step_for_compress=int(runtime_cfg.get("memory_min_step_for_compress", 2)),
-            recent_k_rounds=int(runtime_cfg.get("memory_recent_k_rounds", 2)),
-            tool_trim_head_chars=int(runtime_cfg.get("memory_tool_trim_head_chars", 800)),
-            tool_trim_tail_chars=int(runtime_cfg.get("memory_tool_trim_tail_chars", 800)),
-            tool_mid_hits_max=int(runtime_cfg.get("memory_tool_mid_hits_max", 6)),
-            tool_mid_hit_chars=int(runtime_cfg.get("memory_tool_mid_hit_chars", 240)),
+        self._context_options = ContextCompressionOptions(
+            enabled=bool(runtime_cfg.get("context_enabled", True)),
+            window_tokens=int(runtime_cfg.get("context_window_tokens", 3000)),
+            summary_target_tokens=int(runtime_cfg.get("context_summary_target_tokens", 700)),
+            summary_min_step=int(runtime_cfg.get("context_summary_min_step", 2)),
+            recent_rounds=int(runtime_cfg.get("context_recent_rounds", 2)),
+            tool_trim_head_chars=int(runtime_cfg.get("context_tool_trim_head_chars", 800)),
+            tool_trim_tail_chars=int(runtime_cfg.get("context_tool_trim_tail_chars", 800)),
+            tool_mid_hits_max=int(runtime_cfg.get("context_tool_mid_hits_max", 6)),
+            tool_mid_hit_chars=int(runtime_cfg.get("context_tool_mid_hit_chars", 240)),
+            view_target_tokens=int(runtime_cfg.get("context_view_target_tokens", 600)),
         )
-        self._environment_view_compact_enabled = bool(runtime_cfg.get("environment_view_compact_enabled", False))
-        self._environment_view_compact_target_tokens = int(runtime_cfg.get("environment_view_compact_target_tokens", 600))
+        self._environment_context_compress = bool(runtime_cfg.get("context_enabled", True))
         self._run_root = (self.root / self.config["paths"]["run_root"]).resolve()
         self._workflow_executor: ThreadPoolExecutor = ThreadPoolExecutor(
             max_workers=3,
@@ -224,9 +224,8 @@ class TaskRouterGraph:
             workspace_root=self.root,
             max_steps=self._max_controller_steps,
             invoke_config=self._build_llm_invoke_config(state=state, node="route"),
-            memory_options=self._memory_options,
-            environment_view_compact=self._environment_view_compact_enabled,
-            environment_view_compact_target_tokens=self._environment_view_compact_target_tokens,
+            context_options=self._context_options,
+            environment_context_compress=self._environment_context_compress,
         )
         return {
             "task": task,
@@ -256,9 +255,8 @@ class TaskRouterGraph:
             task=state["task"],
             max_steps=self._max_executor_steps,
             invoke_config=self._build_llm_invoke_config(state=state, node="executor"),
-            memory_options=self._memory_options,
-            environment_view_compact=self._environment_view_compact_enabled,
-            environment_view_compact_target_tokens=self._environment_view_compact_target_tokens,
+            context_options=self._context_options,
+            environment_context_compress=self._environment_context_compress,
         )
         return {
             "task": task,
@@ -297,7 +295,7 @@ class TaskRouterGraph:
             environment=state["environment"],
             task=state["task"],
             invoke_config=self._build_llm_invoke_config(state=state, node="failure_diagnose"),
-            memory_options=self._memory_options,
+            context_options=self._context_options,
         )
         return {
             "environment": environment,
@@ -312,9 +310,8 @@ class TaskRouterGraph:
             user_input=state["user_input"],
             task=state["task"],
             invoke_config=self._build_llm_invoke_config(state=state, node="final_reply"),
-            memory_options=self._memory_options,
-            environment_view_compact=self._environment_view_compact_enabled,
-            environment_view_compact_target_tokens=self._environment_view_compact_target_tokens,
+            context_options=self._context_options,
+            environment_context_compress=self._environment_context_compress,
         )
         return {
             "reply": reply,

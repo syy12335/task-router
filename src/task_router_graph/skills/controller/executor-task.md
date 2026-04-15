@@ -17,7 +17,7 @@
 
 1. 状态追问特例：若 `TASKS_JSON` 已包含最近任务摘要，可直接 `generate_task(executor)`，无需强制 `read`。
 2. 非状态追问：第一优先级是 `read {"path":"src/task_router_graph/skills/controller/executor-task.md"}`。
-3. 历史事实优先使用当前 environment：`build_observation_view`。
+3. 历史事实优先使用当前 environment：`build_context_view`。
 4. 失败重试优先：`previous_failed_track {}`。
 5. 禁止默认目录探索，禁止先猜 `latest_*.json` 路径。
 6. 同一 turn 内禁止重复 `read executor-task.md`。
@@ -34,35 +34,35 @@
    - 输入示例：`请总结上一次测试结果并给出下一步建议`
    - 步骤：
      - `read executor-task.md`
-     - `build_observation_view {"task_limit": 3, "include_task": true, "include_trace": false, "include_user_input": false, "include_reply": false}`
+     - `build_context_view {"task_limit": 3, "include_task": true, "include_trace": false, "include_user_input": false, "include_reply": false}`
      - `generate_task(executor)`
 
 3. 当前会话最近 N 次总结
    - 输入示例：`整理最近两次测试结果并给出下一步建议`
    - 步骤：
      - `read executor-task.md`
-     - `build_observation_view {"task_limit": 2, "include_task": true, "include_trace": false, "include_user_input": true, "include_reply": false}`
+     - `build_context_view {"task_limit": 2, "include_task": true, "include_trace": false, "include_user_input": true, "include_reply": false}`
      - `generate_task(executor)`
 
 4. 解释当前会话上一轮 accutest 评分
    - 输入示例：`请解释上一轮 accutest 的评分含义`
    - 步骤：
      - `read executor-task.md`
-     - `build_observation_view {"task_limit": 5, "include_task": true, "include_trace": false, "include_user_input": false, "include_reply": false}`
+     - `build_context_view {"task_limit": 5, "include_task": true, "include_trace": false, "include_user_input": false, "include_reply": false}`
      - `generate_task(executor)`
 
 5. 总结当前会话最近一次 functest 失败原因
    - 输入示例：`总结最近一次 functest 的失败原因`
    - 步骤：
      - `read executor-task.md`
-     - `build_observation_view {"task_limit": 5, "include_task": true, "include_trace": true, "include_user_input": false, "include_reply": false}`
+     - `build_context_view {"task_limit": 5, "include_task": true, "include_trace": true, "include_user_input": false, "include_reply": false}`
      - `generate_task(executor)`
 
 6. 状态追问
    - 输入示例：`现在怎么样了`
    - 步骤：
      - 优先基于 `TASKS_JSON` 直接生成任务
-     - 如事实不足，再 `build_observation_view {"task_limit": 5, "include_task": true, "include_trace": false, "include_user_input": false, "include_reply": false}`
+     - 如事实不足，再 `build_context_view {"task_limit": 5, "include_task": true, "include_trace": false, "include_user_input": false, "include_reply": false}`
      - `generate_task(executor)`
 
 ## 最小信息要求

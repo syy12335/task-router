@@ -27,18 +27,18 @@
 
 压缩触发：
 
-- `estimated_tokens > memory_max_window_tokens`
-- 且 `step >= memory_min_step_for_compress`
+- `estimated_tokens > context_window_tokens`
+- 且 `step >= context_summary_min_step`
 
-压缩输入会附带 environment 最近 `k` 轮（`memory_recent_k_rounds`）用于辅助提炼重点。
+压缩输入会附带 environment 最近 `k` 轮（`context_recent_rounds`）用于辅助提炼重点。
 
 ## 3. 大工具结果处理
 
 当工具结果过长时，先做规则裁剪，再进入 memory：
 
-1. 头部：`memory_tool_trim_head_chars`（默认 800）
-2. 尾部：`memory_tool_trim_tail_chars`（默认 800）
-3. 中间命中段：最多 `memory_tool_mid_hits_max` 段（默认 6），每段 `memory_tool_mid_hit_chars`（默认 240）
+1. 头部：`context_tool_trim_head_chars`（默认 800）
+2. 尾部：`context_tool_trim_tail_chars`（默认 800）
+3. 中间命中段：最多 `context_tool_mid_hits_max` 段（默认 6），每段 `context_tool_mid_hit_chars`（默认 240）
 
 目标是保留结构线索与关键词命中证据，避免把整段冗余文本灌入模型。
 
@@ -48,8 +48,8 @@
 
 只影响读取视图，不影响落盘：
 
-- `build_observation_view(..., compact=True, compact_target_tokens=...)`
-- `build_controller_input_view(..., compact=True, compact_target_tokens=...)`
+- `build_context_view(..., compress=True, compress_target_tokens=...)`
+- `build_controller_context(..., compress=True, compress_target_tokens=...)`
 
 压缩范围：
 
@@ -65,24 +65,23 @@
 
 默认行为：
 
-- `compact=False`，与历史版本一致
+- `compress=False`，与历史版本一致
 - `Environment.to_dict()` 输出结构不变
 
 ## 5. 配置项
 
 `configs/graph.yaml` -> `runtime`：
 
-- `memory_enabled`
-- `memory_max_window_tokens`
-- `memory_compress_target_tokens`
-- `memory_min_step_for_compress`
-- `memory_recent_k_rounds`
-- `memory_tool_trim_head_chars`
-- `memory_tool_trim_tail_chars`
-- `memory_tool_mid_hits_max`
-- `memory_tool_mid_hit_chars`
-- `environment_view_compact_enabled`
-- `environment_view_compact_target_tokens`
+- `context_enabled`
+- `context_window_tokens`
+- `context_summary_target_tokens`
+- `context_summary_min_step`
+- `context_recent_rounds`
+- `context_tool_trim_head_chars`
+- `context_tool_trim_tail_chars`
+- `context_tool_mid_hits_max`
+- `context_tool_mid_hit_chars`
+- `context_view_target_tokens`
 
 ## 6. 兼容性结论
 

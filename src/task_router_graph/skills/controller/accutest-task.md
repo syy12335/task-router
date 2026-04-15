@@ -16,7 +16,7 @@
 
 2. 历史评分解释请求（通常应路由到 executor）
    - 示例：`请解释上一轮 accutest 的评分含义`
-   - 步骤：`read executor-task.md` -> `build_observation_view(task_limit=5, include_task=true, include_trace=false)` -> `generate_task(executor)`
+   - 步骤：`read executor-task.md` -> `build_context_view(task_limit=5, include_task=true, include_trace=false)` -> `generate_task(executor)`
 
 ## 最小信息要求
 
@@ -31,7 +31,7 @@
 优先级建议：
 
 1. `accutest-task.md` 自身
-2. 当前 environment 中最近一次 accutest 或相关评估结果（优先 `build_observation_view`）
+2. 当前 environment 中最近一次 accutest 或相关评估结果（优先 `build_context_view`）
 3. 评估对象对应的输入 / 输出材料
 
 ## 何时可以 generate_task
