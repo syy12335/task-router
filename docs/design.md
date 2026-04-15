@@ -4,19 +4,29 @@
 
 - Environment 设计：`docs/environment.md`
 - 数据格式：`docs/data_format.md`
+- 近期更新：`docs/changelog.md`
 
-说明：实现以 `src/task_router_graph/` 代码为准；文档用于约束语义口径与对齐协作。
+说明：实现以 `src/task_router_graph/` 代码为准；文档用于对齐语义与协作口径。
 
-## Graph 主流程（最新）
+## Graph 主流程（2026-04-15）
 
-`init -> route -> (executor|functest|accutest|perftest) -> update -> (failure_diagnose | route | final_reply) -> end`
+```text
+init
+  -> collect_workflows
+  -> (route | update)
+  -> (executor | functest | accutest | perftest)
+  -> update
+  -> (failure_diagnose | route | final_reply)
+  -> end
+```
 
 关键分支规则：
 
-1. `task.status == done`：进入 `final_reply`，然后结束。
-2. `task.status == failed` 且 `failed_retry_count <= max_failed_retries`（默认 3）：进入 `failure_diagnose`，再回 `route` 重试。
-3. `task.status == failed` 且超过重试上限：进入 `final_reply`，然后结束。
-4. 达到 `max_task_turns`：进入 `final_reply`，然后结束。
+1. `collect_workflows`：优先回收已完成异步 workflow；命中状态追问时可直接生成汇总 task 并进入 `update`。
+2. `task.status == running`：进入 `final_reply`，本轮先返回“正在执行”。
+3. `task.status == done`：进入 `final_reply`，本轮收敛结束。
+4. `task.status == failed` 且 `failed_retry_count <= max_failed_retries`（默认 3）：进入 `failure_diagnose` 后回 `route`。
+5. 失败超限、路由失败或达到 `max_task_turns`：进入 `final_reply`。
 
 ## 节点职责
 
@@ -25,28 +35,38 @@
 - 创建新 round（`Environment.start_round(user_input=...)`）
 - 初始化 graph 运行状态（`run_id/task_turn/failed_retry_count`）
 
+### collect_workflows
+
+- 非阻塞回收完成态 workflow future
+- 在当前 round 新增 `pyskill_task`
+- 回链源 task：把 source task 改为 `done/failed`，`result` 指向 `pyskill_task(round_id=..., task_id=...)`
+- 对状态追问触发快捷汇总，降低 controller 无效 observe 循环
+
 ### route（controller）
 
 - 只负责：`observe` / `generate_task`
 - 输出：`Task + controller_trace`
-- 观察工具含：`build_observation_view`、`previous_failed_track` 等
+- 观察工具含：`read`、`ls`、`build_observation_view`、`previous_failed_track`、`beijing_time`、`web_search`
+- 当前版本对 observe 参数执行 schema 约束（例如 `read/ls` 必须包含 `path`）
 
 ### execute（executor/functest/accutest/perftest）
 
-- Execute nodes only run the task and do not compose final user-facing reply.
-- Unified output semantics: update only `task_status` and `task_result`.
-- Mock test async workflows (`functest` / `accutest` / `perftest`) include a placeholder `sleep` to simulate long-running workflow execution.
-- Mock delay is fixed to `5` seconds for now.
-- This `sleep` is intentionally a placeholder. Replace logic in `src/task_router_graph/agents/async_workflows/*_async_workflow.py` with your own workflow executor.
+- execute 节点只产出 `task_status/task_result`，不负责最终用户回复
+- `functest/accutest/perftest` 走异步 dispatch：
+  - 当前 task 立即置为 `running`
+  - `result=正在执行`
+  - 记录 `dispatch_pyskill` 轨迹
+
 ### update
 
 - 持久化当前 task 到 environment（`add_task`）
-- 写入 `track`（controller 多步路由 loop + executor agentic loop + test async workflows）
+- 写入 `track`（controller loop + executor/pyskill/diagnoser/reply）
 - 更新 `failed_retry_count`
+- 绑定 workflow 与 source task 的映射关系
 
 ### failure_diagnose
 
-- 触发条件：failed 且仍允许重试
+- 触发条件：failed 且允许重试
 - 输入：上一失败 task + 完整失败 track
 - 行为：给出失败分析，回写 `task.result`，并写入 `diagnoser` 轨迹
 
@@ -55,24 +75,17 @@
 - 只在 round 结束时触发
 - 输入：`user_input + final_task + environment observation view(include_trace=false)`
 - 输出：最终 `output.reply`
-- 额外写入 `track`：`agent=reply,event=compose`
+- 写入 `track`：`agent=reply,event=compose`
 
-## 关键语义口径
+## 设计亮点
 
-1. `task_result` 归执行链负责（executor/test/diagnoser）。
-2. `output.reply` 归 `reply agent` 负责（round 结束统一生成）。
-3. `TaskRecord.reply` 是执行阶段回执字段；当前可为空字符串，不等同最终用户回复。
-4. `track` 是统一轨迹字段，不再使用 `controller_trace` 作为持久化主字段。
-5. 每个关键轨迹步骤可带 `return`，用于记录该步骤返回值。
-
-## 失败重试与纠偏
-
-1. 第一次失败：进入 `failure_diagnose`，分析失败原因并回 route。
-2. 后续失败：重复上述流程，直到超过 `max_failed_retries`。
-3. 超限后不再路由重试，直接进入 `final_reply` 对用户收敛输出。
+1. 异步非阻塞执行：长任务不阻塞当前对话轮。
+2. 同轮多任务落盘：`pyskill_task` 与后续汇总任务可共存，利于追问场景。
+3. 强一致回链：source task 与异步结果通过可追踪引用关联。
+4. 轨迹统一：所有关键行为都落到 `track`，支持 CLI show 和离线复盘。
+5. 策略分层：graph 负责编排，agent 负责决策，schema 负责约束。
 
 ## CLI 入口
 
 - `scripts/run/run_cli.py`：标准 CLI
-- `scripts/run/run_cli_show.py`：同流程，但每轮结束额外打印 `show_environment(show_trace=True)`
-
+- `scripts/run/run_cli_show.py`：同流程，每轮额外打印 `show_environment(show_trace=True)`

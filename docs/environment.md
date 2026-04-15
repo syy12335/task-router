@@ -6,44 +6,73 @@
 
 1. Environment 按 round 组织。
 2. 一个 round 对应一次用户输入。
-3. 一个 round 内可有多个 task（重试会追加新 task）。
+3. 一个 round 内可有多个 task（重试、异步回填、状态汇总均会追加 task）。
 4. `cur_round` 是 Environment 正式状态字段。
-5. `track` is the unified field for controller/executor/diagnoser/reply traces.
+5. `track` 是 controller/executor/pyskill/diagnoser/reply 的统一轨迹字段。
 6. observation view 是读取视图，不等于 Environment full state。
 
 ## 2. 数据模型
 
 ### 2.1 Environment（full state）
 
-- case_id: str（由 graph 落盘时注入）
-- rounds: list[RoundRecord]
-- cur_round: int
-- updated_at: str
+- `case_id`: str（由 graph 落盘时注入）
+- `rounds`: `list[RoundRecord]`
+- `cur_round`: int
+- `updated_at`: str
 
 ### 2.2 RoundRecord
 
-- round_id: int
-- user_input: str
-- tasks: list[TaskRecord]
+- `round_id`: int
+- `user_input`: str
+- `tasks`: `list[TaskRecord]`
 
 ### 2.3 TaskRecord
 
-- task_id: int
-- track: list[dict]（完整轨迹）
-- task: Task
-- reply: str（执行阶段回执字段；可为空）
+- `task_id`: int
+- `track`: `list[dict]`（完整轨迹）
+- `task`: `Task`
+- `reply`: str（执行阶段回执字段；可为空）
 
 ### 2.4 Task
 
-- task_id: int（镜像 TaskRecord.task_id）
-- type: str
-- content: str
-- status: str
-- result: str
+- `task_id`: int（镜像 `TaskRecord.task_id`）
+- `type`: str
+- `content`: str
+- `status`: str
+- `result`: str
 
-## 3. Track 约定
+## 3. 异步回填语义（当前实现）
 
-### 3.1 controller 步骤（示例）
+### 3.1 dispatch 阶段
+
+当 `functest/accutest/perftest` 进入异步 workflow：
+
+- source task 立即置为 `status=running`
+- source task 立即写入 `result=正在执行`
+- `track` 记录 `agent=pyskill,event=dispatch_pyskill`
+
+### 3.2 回收阶段（下一轮或后续轮）
+
+`collect_workflows` 检测到 workflow future 完成后：
+
+- 在当前 `cur_round` 追加一条 `type=pyskill_task` 的新 task
+- 新 task 状态为 `done/failed`，`result` 为 workflow 最终结果
+- source task 被回链为最终状态：
+  - `status=done` 或 `failed`
+  - `result=pyskill_task(round_id=..., task_id=...)`
+
+这保证了“源请求”和“异步结果实体”都可被追踪与复盘。
+
+### 3.3 状态追问阶段
+
+当用户输入类似“现在怎么样了”：
+
+- 若有已完成回收或仍在执行的任务，graph 可直接生成状态汇总 task
+- 汇总 task 也会进入当前 round，并通过 `update` 节点落盘
+
+## 4. Track 约定
+
+### 4.1 controller 步骤（示例）
 
 - observe：
   - `agent=controller`
@@ -57,15 +86,15 @@
   - `task_type/task_content/reason`
   - `return`（通常为 `{task_type, task_content}`）
 
-### 3.2 执行/诊断/回复步骤（示例）
+### 4.2 执行/诊断/回复步骤（示例）
 
-- `agent=executor|functest_async_workflow|accutest_async_workflow|perftest_async_workflow|diagnoser|reply`
-- `event=observe|execute|skip|workflow_execute|workflow_skip|analyze|compose`
+- `agent=executor|pyskill|diagnoser|reply`
+- `event=execute|skip|dispatch_pyskill|workflow_complete|workflow_fail|link_pyskill_result|analyze|compose`
 - `task_status/task_result`
 - 可选 `reply`（仅 reply 代理或特定步骤）
 - 可选 `return`（步骤返回值）
 
-## 4. 写入接口
+## 5. 写入接口
 
 ### start_round(user_input=...)
 
@@ -74,13 +103,13 @@
 
 ### add_task(round_id=..., track=..., task=..., reply=...)
 
-- 向目标 round 追加 TaskRecord
+- 向目标 round 追加 `TaskRecord`
 - `task_id = len(round.tasks) + 1`
 - task/track 采用副本写入，避免外部引用污染历史
 
 ### annotate_last_failed_task(...)
 
-- 定位“最后一条失败 task”
+- 定位最后一条失败 task
 - 回写失败分析结果（`task.result`）
 - 可追加诊断轨迹
 
@@ -89,7 +118,7 @@
 - 向最后一条 task 追加轨迹
 - 当前用于 `reply agent` 的 compose 记录
 
-## 5. 读取接口
+## 6. 读取接口
 
 ### to_dict(include_trace=True)
 
@@ -101,31 +130,26 @@
 
 ### build_controller_input_view(default_task_limit=5)
 
-controller input assembly:
+controller 输入组装规则：
 
-- executor path: recent N tasks without trace (`task_limit=default_task_limit`).
-- if current last task is failed:
-  - broaden to full no-trace view (`task_limit=None`);
-  - current implementation flattens tasks across all rounds in this environment.
-- if any failed task exists in current environment (cross-round):
-  - attach `previous_failed_task` summary into `TASKS_JSON` (track is still not injected).
+- 常规路径：最近 N 条 task（默认不带 trace）
+- 当前最后 task 失败时：放宽到全量 no-trace 视图
+- 若环境中存在失败任务：附加 `previous_failed_task` 摘要（不带失败 track）
 
-failed track must be fetched explicitly via `previous_failed_track` tool.
-
+失败 track 仍需通过 `previous_failed_track` 工具显式获取。
 
 ### get_previous_failed_track_view()
 
-returns the latest failed-task track in current environment (cross-round, not cross-run).
-
+返回当前 environment 内最近失败 task 的完整 track（跨 round，非跨 run）。
 
 ### show_environment(show_trace=True)
 
-打印可读文本；当 `show_trace=True` 时展示每步 agent/event/reason，并附 `return`（若存在）。
+打印可读文本；开启 `show_trace` 时展示每步 `agent/event/reason/return`。
 
-## 6. 常见误区
+## 7. 常见误区
 
-1. `reply` 字段等于最终用户回复：错误（最终回复来自 `output.reply`）。
+1. `TaskRecord.reply` 等于最终用户回复：错误（最终回复来自 `output.reply`）。
 2. 失败轨迹默认注入 controller 输入：错误（需工具显式读取）。
-3. full state 与 observation view 混用：错误。
-4. 失败后 controller 只看当前 round：错误（当前实现在 failed 分支会读取所有 round 的 tasks 视图）。
-5. `previous_failed_track` is not limited to "current last task failed"; it returns the latest failed task in current environment.
+3. full state 与 observation view 可混用：错误。
+4. 异步结果只会修改 source task：错误（还会新增 `pyskill_task`）。
+5. `previous_failed_track` 仅针对“当前最后一条失败 task”：错误（返回最近失败 task）。
