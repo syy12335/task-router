@@ -18,6 +18,8 @@ from task_router_graph import TaskRouterGraph
 from task_router_graph.llm import resolve_provider_and_model
 from task_router_graph.schema import Environment, RoundRecord
 
+from run_common import ensure_preferred_provider_and_log
+
 
 st.set_page_config(page_title="Task Router Graph", layout="wide")
 st.title("Task Router Graph Demo")
@@ -212,6 +214,8 @@ def _render_result(result: dict[str, Any]) -> None:
 
 
 def _run_graph(*, config_path: Path, case_id: str, user_input: str) -> dict[str, Any]:
+    ensure_preferred_provider_and_log(config_path)
+
     with st.spinner("Graph 初始化中..."):
         graph = _load_graph(str(config_path))
 

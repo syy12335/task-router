@@ -6,7 +6,6 @@ import signal
 import sys
 import traceback
 
-import yaml
 from pathlib import Path
 from typing import Callable
 
@@ -16,7 +15,7 @@ if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
 
-from run_common import flush_tracers, log, with_heartbeat
+from run_common import ensure_preferred_provider_and_log, flush_tracers, log, with_heartbeat
 
 
 def _run_with_timeout(fn: Callable[[], object], timeout_sec: float, label: str) -> object:
@@ -73,12 +72,10 @@ def main() -> None:
         if not config_path.is_absolute():
             config_path = PROJECT_ROOT / config_path
         config_path = config_path.resolve()
+        if not config_path.exists():
+            raise FileNotFoundError(f"Config file not found: {config_path}")
 
-        from task_router_graph.llm import resolve_provider_and_model
-
-        config_payload = yaml.safe_load(config_path.read_text(encoding="utf-8"))
-        provider, model_name = resolve_provider_and_model(config_payload)
-        log(f"Run model config: provider={provider}, model={model_name}")
+        ensure_preferred_provider_and_log(config_path)
 
         cases_dir = Path(args.cases_dir)
         if not cases_dir.is_absolute():
