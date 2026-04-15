@@ -65,6 +65,9 @@ model:
 runtime:
   max_task_turns: 4
   max_failed_retries: 3
+  memory_enabled: true
+  memory_max_window_tokens: 3000
+  environment_view_compact_enabled: false
 ```
 
 设置模型后端：
@@ -133,6 +136,7 @@ var/runs/                 # 运行输出
 
 - `docs/design.md`：流程与节点设计
 - `docs/environment.md`：environment 数据结构
+- `docs/agent_memory.md`：agent memory 与 environment 视图压缩机制
 - `docs/data_format.md`：输入输出格式
 - `docs/pyskill.md`：PySkill 联动机制设计稿
 - `docs/changelog.md`：近期更新对齐

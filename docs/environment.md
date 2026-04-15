@@ -128,13 +128,22 @@
 
 返回默认 AI 读取视图（可控是否包含 trace）。
 
-### build_controller_input_view(default_task_limit=5)
+新增可选参数：
+
+- `compact: bool = False`
+- `compact_target_tokens: int | None = None`
+
+当 `compact=true` 时，仅压缩视图中的长文本字段（`task.result/reply/track.return`），不影响 full state 与落盘。
+
+### build_controller_input_view(default_task_limit=5, compact=False, compact_target_tokens=None)
 
 controller 输入组装规则：
 
 - 常规路径：最近 N 条 task（默认不带 trace）
 - 当前最后 task 失败时：放宽到全量 no-trace 视图
 - 若环境中存在失败任务：附加 `previous_failed_task` 摘要（不带失败 track）
+
+当 `compact=true` 时，上述视图中的长文本字段同样会做压缩处理。
 
 失败 track 仍需通过 `previous_failed_track` 工具显式获取。
 

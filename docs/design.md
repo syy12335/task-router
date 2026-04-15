@@ -3,6 +3,7 @@
 ## 文档导航
 
 - Environment 设计：`docs/environment.md`
+- Agent Memory 与视图压缩：`docs/agent_memory.md`
 - 数据格式：`docs/data_format.md`
 - 近期更新：`docs/changelog.md`
 
@@ -48,6 +49,7 @@ init
 - 输出：`Task + controller_trace`
 - 观察工具含：`read`、`ls`、`build_observation_view`、`previous_failed_track`、`beijing_time`、`web_search`
 - 当前版本对 observe 参数执行 schema 约束（例如 `read/ls` 必须包含 `path`）
+- LLM 输入通过 agent memory 组装；在超窗时可触发压缩
 
 ### execute（executor/functest/accutest/perftest）
 
@@ -56,6 +58,7 @@ init
   - 当前 task 立即置为 `running`
   - `result=正在执行`
   - 记录 `dispatch_pyskill` 轨迹
+- executor 观察工具返回过大时，会先做首尾与中间命中段裁剪，再进入 memory
 
 ### update
 
@@ -76,6 +79,7 @@ init
 - 输入：`user_input + final_task + environment observation view(include_trace=false)`
 - 输出：最终 `output.reply`
 - 写入 `track`：`agent=reply,event=compose`
+- reply 与 failure_diagnose 也复用同一 memory 机制（统一上下文构造）
 
 ## 设计亮点
 
@@ -84,6 +88,7 @@ init
 3. 强一致回链：source task 与异步结果通过可追踪引用关联。
 4. 轨迹统一：所有关键行为都落到 `track`，支持 CLI show 和离线复盘。
 5. 策略分层：graph 负责编排，agent 负责决策，schema 负责约束。
+6. 上下文治理：agent memory + 视图压缩共同控制 token 体积与噪声扩散。
 
 ## CLI 入口
 
