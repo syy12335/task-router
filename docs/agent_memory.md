@@ -1,6 +1,7 @@
-# Agent Memory 与 Environment 视图压缩机制
+# Agent Memory 与 Environment 分层历史机制
 
-本文档说明 2026-04-15 引入的 run 内记忆机制与 environment 读取视图压缩机制。
+本文档说明当前 run 内上下文治理方案：  
+在保证可回放与可追溯的前提下，降低多轮场景中的上下文膨胀风险，并提升失败重试场景的稳定性。
 
 对应实现：
 
@@ -8,21 +9,38 @@
 - `src/task_router_graph/schema/environment.py`
 - `src/task_router_graph/graph.py`
 - `src/task_router_graph/nodes.py`
+- `scripts/run/run_common.py`
 
-## 1. 目标
+## 1. 设计目标
 
-1. 减少 step 内直接拼接大 JSON 导致的上下文噪声与超窗风险。
-2. 在不改变落盘 schema 的前提下，压缩 AI 读取视图，保持历史回放兼容。
-3. 统一 controller / executor / reply / diagnoser 的上下文构造路径。
+1. 降低 step 内直接拼接大文本导致的噪声、漂移与超窗风险。
+2. 让 graph 专注状态转移，序列化与 IO 统一下沉到 runner。
+3. 将 Environment 从“仅最近明细”升级为“近期明细 + 历史摘要分片 + meta 摘要”。
+4. 保留完整归档能力，确保历史可审计、可回查。
 
-## 2. Agent Memory 设计
+## 2. 架构分层（当前口径）
 
-`AgentMemory` 为**每个 agent 私有实例**，只在单次任务执行期间存在，不跨 agent、不过 run。
+### 2.1 Graph 层
 
-核心字段：
+- `TaskRouterGraph.run/run_case` 返回对象 `GraphRunResult`。
+- 仅产出状态与副作用意图（`archive_records`），不直接做文件写入。
+- `_update_step` 后触发 rollup（不传路径），实现历史折叠与摘要更新。
 
-- `messages`: `system/user/assistant/tool` 四类消息
-- `private_summary`: 压缩摘要（仅内存态）
+### 2.2 Runner 层
+
+- 根据 `project_root + run_id` 推导 `run_dir`。
+- 负责写 `environment.json`。
+- 负责追加写 `environment_archive.jsonl`（来自 `archive_records`）。
+- 负责生成对外展示 payload（包含 `output.run_dir` 字符串）。
+
+## 3. Agent Memory（单代理私有）
+
+`AgentMemory` 为每个 agent 的私有上下文容器，不跨 agent，不跨 run。
+
+核心结构：
+
+- `messages`：`system / user / assistant / tool`
+- `private_summary`：内存态摘要
 - token 估算与压缩状态
 
 压缩触发：
@@ -30,47 +48,52 @@
 - `estimated_tokens > context_window_tokens`
 - 且 `step >= context_summary_min_step`
 
-压缩输入会附带 environment 最近 `k` 轮（`context_recent_rounds`）用于辅助提炼重点。
+压缩时会注入 environment 最近 `k` 轮（`context_recent_rounds`）辅助提炼重点。
 
-## 3. 大工具结果处理
+## 4. 大工具结果保护（规则优先）
 
-当工具结果过长时，先做规则裁剪，再进入 memory：
+工具结果过大时，先规则裁剪再进入 memory：
 
-1. 头部：`context_tool_trim_head_chars`（默认 800）
-2. 尾部：`context_tool_trim_tail_chars`（默认 800）
-3. 中间命中段：最多 `context_tool_mid_hits_max` 段（默认 6），每段 `context_tool_mid_hit_chars`（默认 240）
+1. `head`: `context_tool_trim_head_chars`（默认 800）
+2. `tail`: `context_tool_trim_tail_chars`（默认 800）
+3. `mid_hits`: 最多 `context_tool_mid_hits_max` 段（默认 6），每段 `context_tool_mid_hit_chars`（默认 240）
 
-目标是保留结构线索与关键词命中证据，避免把整段冗余文本灌入模型。
+目标是保留证据密度，而不是原样灌入全文。  
+该策略在关键代理路径上统一生效，避免单侧过载。
 
-说明：该策略在 controller 与 executor 两侧都生效，避免出现单侧防爆、单侧过载的不对称问题。
+## 5. Environment 分层历史
 
-## 4. Environment 视图压缩
+Environment 新增正式字段：
 
-只影响读取视图，不影响落盘：
+- `history_summaries`: 历史摘要分片列表
+- `history_meta_summary`: 更高层的聚合摘要
 
-- `build_context_view(..., compress=True, compress_target_tokens=...)`
-- `build_controller_context(..., compress=True, compress_target_tokens=...)`
+Rollup 触发后：
 
-压缩范围：
+- 旧轮次被折叠为 summary shard
+- 明细轮次数量受控
+- 被折叠原文通过 `archive_records` 交给 runner 落盘到 JSONL
 
-- `task.result`
-- `reply`
-- `track[*].return`（当 `include_trace=true`）
+保护规则（不折叠）包括：
 
-保留字段：
+- 近期保留轮次
+- `running` 相关轮次
+- 最近失败上下文相关轮次
+- source/pyskill 链接相关轮次
 
-- `round_id/task_id`
-- `task.type/status/content`
-- 其他结构化元信息
+## 6. 视图策略（最后防线）
 
-默认行为：
+`build_context_view` / `build_controller_context` 会注入：
 
-- `compress=False`，与历史版本一致
-- `Environment.to_dict()` 输出结构不变
+- `history_summary_latest`
+- `history_meta_summary`
 
-## 5. 配置项
+同时保留 `compress` 路径作为最终控长手段。  
+注意：这里主要是 view-level compaction/truncation，不等同于完整语义总结。
 
-`configs/graph.yaml` -> `runtime`：
+## 7. 关键配置项
+
+`configs/graph.yaml -> runtime`：
 
 - `context_enabled`
 - `context_window_tokens`
@@ -82,9 +105,15 @@
 - `context_tool_mid_hits_max`
 - `context_tool_mid_hit_chars`
 - `context_view_target_tokens`
+- `context_history_enabled`
+- `context_history_max_detail_rounds`
+- `context_history_keep_recent_rounds`
+- `context_history_summary_target_tokens`
+- `context_history_meta_target_tokens`
+- `context_history_inject_latest_shards`
 
-## 6. 兼容性结论
+## 8. 兼容性说明
 
-1. 历史 `environment.json` 读取路径不变。
-2. 新机制不新增落盘顶层字段，不改 `rounds/cur_round/updated_at` 口径。
-3. 视图压缩默认关闭，按配置显式开启。
+1. `Environment.to_dict/from_dict` 兼容旧 `environment.json`。
+2. 交互模式已切到对象复用，不再依赖 `_restore_environment()` 反序列化中转。
+3. graph 层不做落盘；序列化与文件写入统一在 runner 层执行。

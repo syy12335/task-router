@@ -15,10 +15,11 @@
 
 ### 2.1 Environment（full state）
 
-- `case_id`: str（由 graph 落盘时注入）
 - `rounds`: `list[RoundRecord]`
 - `cur_round`: int
 - `updated_at`: str
+- `history_summaries`: `list[dict]`（历史摘要分片）
+- `history_meta_summary`: str（摘要分片的聚合摘要）
 
 ### 2.2 RoundRecord
 
@@ -122,7 +123,8 @@
 
 ### to_dict(include_trace=True)
 
-返回 Environment full state：`rounds/cur_round/updated_at`；落盘时额外注入 `case_id`。
+返回 Environment full state：`rounds/cur_round/updated_at/history_*`。  
+`case_id` 不是 Environment 正式字段，由 runner 在展示/落盘 payload 阶段注入。
 
 ### build_context_view(...)
 
@@ -134,6 +136,11 @@
 - `compress_target_tokens: int | None = None`
 
 当 `compress=true` 时，仅压缩视图中的长文本字段（`task.result/reply/track.return`），不影响 full state 与落盘。
+
+同时视图会注入：
+
+- `history_summary_latest`
+- `history_meta_summary`
 
 ### build_controller_context(default_task_limit=5, compress=False, compress_target_tokens=None)
 
