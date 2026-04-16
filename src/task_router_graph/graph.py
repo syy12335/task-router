@@ -70,6 +70,10 @@ class GraphState(TypedDict, total=False):
     workflow_pending: bool
     workflow_key: str
     skip_route: bool
+    retry_phase: bool
+    retry_reason: str
+    retry_reply_text: str
+    pre_execute_track: list[dict[str, Any]]
 
 
 class TaskRouterGraph:
@@ -177,6 +181,7 @@ class TaskRouterGraph:
         builder.add_node("init", self._init_step)
         builder.add_node("collect_workflows", self._collect_workflows_step)
         builder.add_node("route", self._route_step)
+        builder.add_node("retry_reply", self._retry_reply_step)
         builder.add_node("executor", self._executor_step)
         builder.add_node("functest", self._functest_step)
         builder.add_node("accutest", self._accutest_step)
@@ -198,6 +203,17 @@ class TaskRouterGraph:
         )
         builder.add_conditional_edges(
             "route",
+            self._pick_after_route,
+            {
+                "retry_reply": "retry_reply",
+                "executor": "executor",
+                "functest": "functest",
+                "accutest": "accutest",
+                "perftest": "perftest",
+            },
+        )
+        builder.add_conditional_edges(
+            "retry_reply",
             self._pick_execute_node,
             {
                 "executor": "executor",
@@ -245,6 +261,10 @@ class TaskRouterGraph:
             "workflow_pending": False,
             "workflow_key": "",
             "skip_route": False,
+            "retry_phase": False,
+            "retry_reason": "",
+            "retry_reply_text": "",
+            "pre_execute_track": [],
         }
 
     def _collect_workflows_step(self, state: GraphState) -> GraphState:
@@ -304,12 +324,58 @@ class TaskRouterGraph:
             context_options=self._context_options,
             environment_context_compress=self._environment_context_compress,
         )
+        retry_phase = bool(state.get("retry_phase", False))
+        retry_reason = str(state.get("retry_reason", "")).strip() if retry_phase else ""
         return {
             "task": task,
             "controller_trace": controller_trace,
             "workflow_pending": False,
             "workflow_key": "",
             "skip_route": False,
+            "retry_phase": retry_phase,
+            "retry_reason": retry_reason,
+            "retry_reply_text": "",
+            "pre_execute_track": [],
+        }
+
+    def _pick_after_route(self, state: GraphState) -> Literal["retry_reply", "executor", "functest", "accutest", "perftest"]:
+        if bool(state.get("retry_phase", False)) and int(state.get("failed_retry_count", 0)) > 0:
+            return "retry_reply"
+        return self._pick_execute_node(state)
+
+    def _retry_reply_step(self, state: GraphState) -> GraphState:
+        if not bool(state.get("retry_phase", False)):
+            return {"retry_reply_text": "", "pre_execute_track": []}
+
+        retry_count = int(state.get("failed_retry_count", 0))
+        if retry_count <= 0:
+            return {"retry_reply_text": "", "pre_execute_track": []}
+
+        reason = str(state.get("retry_reason", "")).strip()
+        if reason:
+            reason = self._short_text(reason, max_len=220)
+            reply_text = (
+                f"上一次执行失败，正在自动重试（{retry_count}/{self._max_failed_retries}）。"
+                f"失败摘要：{reason}"
+            )
+        else:
+            reply_text = f"上一次执行失败，正在自动重试（{retry_count}/{self._max_failed_retries}）。"
+
+        return {
+            "retry_reply_text": reply_text,
+            "pre_execute_track": [
+                {
+                    "agent": "reply",
+                    "event": "retry_reply",
+                    "task_status": "retrying",
+                    "task_result": "",
+                    "return": {
+                        "reply": reply_text,
+                        "retry_count": retry_count,
+                        "max_retries": self._max_failed_retries,
+                    },
+                }
+            ],
         }
 
     def _pick_execute_node(self, state: GraphState) -> Literal["executor", "functest", "accutest", "perftest"]:
@@ -335,6 +401,11 @@ class TaskRouterGraph:
             context_options=self._context_options,
             environment_context_compress=self._environment_context_compress,
         )
+        pre_execute_track = state.get("pre_execute_track", [])
+        if isinstance(pre_execute_track, list) and pre_execute_track:
+            merged_track = [item for item in pre_execute_track if isinstance(item, dict)]
+            merged_track.extend(item for item in agent_track if isinstance(item, dict))
+            agent_track = merged_track
         workflow_key = self._extract_dispatched_run_id(agent_track=agent_track)
         workflow_pending = bool(workflow_key and str(task.status).strip().lower() == "running")
         return {
@@ -344,6 +415,8 @@ class TaskRouterGraph:
             "workflow_pending": workflow_pending,
             "workflow_key": workflow_key,
             "skip_route": False,
+            "retry_reply_text": str(state.get("retry_reply_text", "")).strip(),
+            "pre_execute_track": [],
         }
 
     def _functest_step(self, state: GraphState) -> GraphState:
@@ -379,6 +452,8 @@ class TaskRouterGraph:
         return {
             "environment": environment,
             "task": task,
+            "retry_phase": True,
+            "retry_reason": str(task.result).strip(),
         }
 
     def _pre_reply_collect_step(self, state: GraphState) -> GraphState:
@@ -444,6 +519,10 @@ class TaskRouterGraph:
             "task_turn": int(state.get("task_turn", 0)) + 1,
             "failed_retry_count": failed_retry_count,
             "archive_records": updated_archive_records,
+            "retry_phase": False,
+            "retry_reason": "",
+            "retry_reply_text": "",
+            "pre_execute_track": [],
         }
 
     def _pick_after_update(self, state: GraphState) -> Literal["failure_diagnose", "route", "final_reply"]:
@@ -483,28 +562,35 @@ class TaskRouterGraph:
     ) -> GraphState:
         task = state["task"]
         task_status = str(task.status).strip().lower()
+        pre_execute_track = state.get("pre_execute_track", [])
+        pre_track_items: list[dict[str, Any]] = []
+        if isinstance(pre_execute_track, list):
+            pre_track_items.extend(item for item in pre_execute_track if isinstance(item, dict))
 
         if task_status in {"done", "failed"}:
-            return {
-                "task": task,
-                "reply": "",
-                "agent_track": [
-                    {
-                        "agent": "pyskill",
-                        "event": "workflow_skip",
+            merged_track = list(pre_track_items)
+            merged_track.append(
+                {
+                    "agent": "pyskill",
+                    "event": "workflow_skip",
+                    "workflow_type": workflow_type,
+                    "task_status": task.status,
+                    "task_result": task.result,
+                    "return": {
                         "workflow_type": workflow_type,
                         "task_status": task.status,
                         "task_result": task.result,
-                        "return": {
-                            "workflow_type": workflow_type,
-                            "task_status": task.status,
-                            "task_result": task.result,
-                        },
-                    }
-                ],
+                    },
+                }
+            )
+            return {
+                "task": task,
+                "reply": "",
+                "agent_track": merged_track,
                 "workflow_pending": False,
                 "workflow_key": "",
                 "skip_route": False,
+                "pre_execute_track": [],
             }
 
         task.status = "running"
@@ -524,27 +610,31 @@ class TaskRouterGraph:
                 "source_content": str(task.content).strip(),
             }
 
+        merged_track = list(pre_track_items)
+        merged_track.append(
+            {
+                "agent": "pyskill",
+                "event": "dispatch_pyskill",
+                "workflow_type": workflow_type,
+                "task_status": task.status,
+                "task_result": task.result,
+                "run_id": workflow_key,
+                "return": {
+                    "accepted": True,
+                    "run_id": workflow_key,
+                    "workflow_type": workflow_type,
+                },
+            }
+        )
+
         return {
             "task": task,
             "reply": "",
-            "agent_track": [
-                {
-                    "agent": "pyskill",
-                    "event": "dispatch_pyskill",
-                    "workflow_type": workflow_type,
-                    "task_status": task.status,
-                    "task_result": task.result,
-                    "run_id": workflow_key,
-                    "return": {
-                        "accepted": True,
-                        "run_id": workflow_key,
-                        "workflow_type": workflow_type,
-                    },
-                }
-            ],
+            "agent_track": merged_track,
             "workflow_pending": True,
             "workflow_key": workflow_key,
             "skip_route": False,
+            "pre_execute_track": [],
         }
 
     def _build_workflow_key(self, *, state: GraphState, workflow_type: str) -> str:
@@ -1321,20 +1411,120 @@ class TaskRouterGraph:
             "metadata": metadata,
         }
 
-    def run(self, *, case_id: str, user_input: str, environment: Environment | None = None) -> GraphRunResult:
+    def _build_graph_invoke_config(self, *, case_id: str) -> dict[str, Any]:
+        return {
+            "run_name": "task-router.graph",
+            "tags": ["task-router", "graph"],
+            "metadata": {"case_id": case_id},
+        }
+
+    def _emit_graph_event(
+        self,
+        *,
+        on_event: Callable[[dict[str, Any]], None] | None,
+        event: str,
+        case_id: str,
+        run_id: str,
+        payload: dict[str, Any],
+    ) -> None:
+        if on_event is None:
+            return
+        event_payload = {
+            "event": event,
+            "case_id": case_id,
+            "run_id": run_id,
+            "ts": datetime.now(timezone.utc).isoformat(),
+        }
+        event_payload.update(payload)
+        try:
+            on_event(event_payload)
+        except Exception:
+            return
+
+    def _run_state_invoke(
+        self,
+        *,
+        initial_state: GraphState,
+        case_id: str,
+    ) -> GraphState:
+        result_state = self._compiled_graph.invoke(
+            initial_state,
+            config=self._build_graph_invoke_config(case_id=case_id),
+        )
+        if not isinstance(result_state, dict):
+            raise KeyError("graph invoke result must be a mapping")
+        return result_state
+
+    def _run_state_stream(
+        self,
+        *,
+        initial_state: GraphState,
+        case_id: str,
+        on_event: Callable[[dict[str, Any]], None] | None = None,
+    ) -> GraphState:
+        result_state: GraphState = dict(initial_state)
+        run_id = ""
+        stream_iter = self._compiled_graph.stream(
+            initial_state,
+            config=self._build_graph_invoke_config(case_id=case_id),
+            stream_mode="updates",
+        )
+        for chunk in stream_iter:
+            if not isinstance(chunk, dict):
+                continue
+            for node_name, node_payload in chunk.items():
+                if not isinstance(node_payload, dict):
+                    continue
+                result_state.update(node_payload)
+                run_id = str(result_state.get("run_id", "")).strip() or run_id
+
+                if node_name == "retry_reply":
+                    reply_text = str(node_payload.get("retry_reply_text", "")).strip()
+                    if reply_text:
+                        self._emit_graph_event(
+                            on_event=on_event,
+                            event="retry_reply",
+                            case_id=case_id,
+                            run_id=run_id,
+                            payload={"reply": reply_text},
+                        )
+                elif node_name == "final_reply":
+                    reply_text = str(node_payload.get("reply", "")).strip()
+                    if reply_text:
+                        self._emit_graph_event(
+                            on_event=on_event,
+                            event="final_reply",
+                            case_id=case_id,
+                            run_id=run_id,
+                            payload={"reply": reply_text},
+                        )
+        return result_state
+
+    def run(
+        self,
+        *,
+        case_id: str,
+        user_input: str,
+        environment: Environment | None = None,
+        on_event: Callable[[dict[str, Any]], None] | None = None,
+    ) -> GraphRunResult:
         initial_state: GraphState = {
             "case_id": case_id,
             "user_input": user_input,
             "environment": environment or Environment(),
+            "retry_phase": False,
+            "retry_reason": "",
+            "retry_reply_text": "",
+            "pre_execute_track": [],
         }
-        result_state = self._compiled_graph.invoke(
-            initial_state,
-            config={
-                "run_name": "task-router.graph",
-                "tags": ["task-router", "graph"],
-                "metadata": {"case_id": case_id},
-            },
-        )
+        if on_event is None:
+            result_state = self._run_state_invoke(initial_state=initial_state, case_id=case_id)
+        else:
+            result_state = self._run_state_stream(
+                initial_state=initial_state,
+                case_id=case_id,
+                on_event=on_event,
+            )
 
         env = result_state.get("environment")
         task = result_state.get("task")
@@ -1368,6 +1558,21 @@ class TaskRouterGraph:
             output=output,
             run_id=run_id,
             archive_records=archive_records,
+        )
+
+    def run_stream(
+        self,
+        *,
+        case_id: str,
+        user_input: str,
+        environment: Environment | None = None,
+        on_event: Callable[[dict[str, Any]], None] | None = None,
+    ) -> GraphRunResult:
+        return self.run(
+            case_id=case_id,
+            user_input=user_input,
+            environment=environment,
+            on_event=on_event,
         )
 
     def run_case(self, case_path: str | Path) -> GraphRunResult:

@@ -46,6 +46,18 @@ def _print_result(result: dict, *, show_environment: bool, show_raw: bool) -> No
         print(json.dumps(environment, ensure_ascii=False, indent=2), flush=True)
 
 
+def _print_stream_event(event: dict[str, object]) -> None:
+    if not isinstance(event, dict):
+        return
+    event_name = str(event.get("event", "")).strip()
+    if event_name != "retry_reply":
+        return
+    reply = str(event.get("reply", "")).strip()
+    if not reply:
+        return
+    print(f"Assistant(progress)> {reply}", flush=True)
+
+
 def main() -> None:
     try:
         parser = argparse.ArgumentParser(description="CLI entrypoint for TaskRouterGraph without case files.")
@@ -113,7 +125,12 @@ def main() -> None:
                 result, _ = with_heartbeat(
                     f"Turn {turn}",
                     args.heartbeat_sec,
-                    lambda: graph.run(case_id=case_id, user_input=user_input, environment=interactive_environment),
+                    lambda: graph.run(
+                        case_id=case_id,
+                        user_input=user_input,
+                        environment=interactive_environment,
+                        on_event=_print_stream_event,
+                    ),
                 )
                 interactive_environment = result.environment
                 persist_run_result(result, project_root=PROJECT_ROOT)
@@ -131,7 +148,11 @@ def main() -> None:
         result, _ = with_heartbeat(
             "Single-shot run",
             args.heartbeat_sec,
-            lambda: graph.run(case_id=args.case_id, user_input=user_input),
+            lambda: graph.run(
+                case_id=args.case_id,
+                user_input=user_input,
+                on_event=_print_stream_event,
+            ),
         )
         persist_run_result(result, project_root=PROJECT_ROOT)
         payload = serialize_run_result(result, project_root=PROJECT_ROOT)
