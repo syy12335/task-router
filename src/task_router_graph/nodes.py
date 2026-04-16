@@ -42,6 +42,10 @@ MAX_READ_CHARS = 8000
 MAX_OBSERVATION_VIEW_TASKS = 20
 MAX_OBSERVATION_VIEW_WITH_TRACE_TASKS = 5
 DEFAULT_SKILL_TOOL_TIMEOUT_SEC = 12
+SKILL_TOOL_SUCCESS_STDOUT_MAX_CHARS = 24000
+SKILL_TOOL_FAILED_STDOUT_MAX_CHARS = 8000
+SKILL_TOOL_FAILED_STDERR_MAX_CHARS = 8000
+SKILL_TOOL_EXCEPTION_MSG_MAX_CHARS = 2000
 ALLOWED_TASK_TYPES = {"executor", "functest", "accutest", "perftest"}
 
 
@@ -83,6 +87,16 @@ def _sanitize_tool_kwargs(kwargs: dict[str, Any], *, reserved: set[str]) -> dict
             continue
         sanitized[key] = value
     return sanitized
+
+
+def _truncate_text_by_chars(text: Any, *, max_chars: int) -> tuple[str, bool, int]:
+    raw = str(text or "")
+    raw_chars = len(raw)
+    if max_chars < 1:
+        max_chars = 1
+    if raw_chars <= max_chars:
+        return raw, False, raw_chars
+    return raw[:max_chars], True, raw_chars
 
 
 def _tool_read(*, workspace_root: Path, path: str = "") -> str:
@@ -262,6 +276,14 @@ class SkillToolRuntime:
                 timeout=self.timeout_sec,
             )
         except subprocess.TimeoutExpired as exc:
+            stdout_text, stdout_truncated, stdout_raw_chars = _truncate_text_by_chars(
+                str(exc.stdout or "").strip(),
+                max_chars=SKILL_TOOL_FAILED_STDOUT_MAX_CHARS,
+            )
+            stderr_text, stderr_truncated, stderr_raw_chars = _truncate_text_by_chars(
+                str(exc.stderr or "").strip(),
+                max_chars=SKILL_TOOL_FAILED_STDERR_MAX_CHARS,
+            )
             return _json_dump(
                 {
                     "tool": tool_name,
@@ -269,12 +291,20 @@ class SkillToolRuntime:
                     "script": script_path,
                     "timed_out": True,
                     "timeout_sec": self.timeout_sec,
-                    "stdout": str(exc.stdout or "").strip(),
-                    "stderr": str(exc.stderr or "").strip(),
+                    "stdout": stdout_text,
+                    "stdout_truncated": stdout_truncated,
+                    "stdout_raw_chars": stdout_raw_chars,
+                    "stderr": stderr_text,
+                    "stderr_truncated": stderr_truncated,
+                    "stderr_raw_chars": stderr_raw_chars,
                     "exit_code": None,
                 }
             )
         except Exception as exc:
+            stderr_text, stderr_truncated, stderr_raw_chars = _truncate_text_by_chars(
+                str(exc),
+                max_chars=SKILL_TOOL_EXCEPTION_MSG_MAX_CHARS,
+            )
             return _json_dump(
                 {
                     "tool": tool_name,
@@ -282,13 +312,27 @@ class SkillToolRuntime:
                     "script": script_path,
                     "timed_out": False,
                     "stdout": "",
-                    "stderr": str(exc),
+                    "stdout_truncated": False,
+                    "stdout_raw_chars": 0,
+                    "stderr": stderr_text,
+                    "stderr_truncated": stderr_truncated,
+                    "stderr_raw_chars": stderr_raw_chars,
                     "exit_code": None,
                 }
             )
 
-        stdout_text = str(result.stdout or "").strip()
-        stderr_text = str(result.stderr or "").strip()
+        success_stdout_text, success_stdout_truncated, success_stdout_raw_chars = _truncate_text_by_chars(
+            str(result.stdout or "").strip(),
+            max_chars=SKILL_TOOL_SUCCESS_STDOUT_MAX_CHARS,
+        )
+        failed_stdout_text, failed_stdout_truncated, failed_stdout_raw_chars = _truncate_text_by_chars(
+            str(result.stdout or "").strip(),
+            max_chars=SKILL_TOOL_FAILED_STDOUT_MAX_CHARS,
+        )
+        failed_stderr_text, failed_stderr_truncated, failed_stderr_raw_chars = _truncate_text_by_chars(
+            str(result.stderr or "").strip(),
+            max_chars=SKILL_TOOL_FAILED_STDERR_MAX_CHARS,
+        )
         exit_code = int(result.returncode)
 
         if exit_code != 0:
@@ -298,15 +342,25 @@ class SkillToolRuntime:
                     "skill": str(active_skill.get("name", "")),
                     "script": script_path,
                     "timed_out": False,
-                    "stdout": stdout_text,
-                    "stderr": stderr_text,
+                    "stdout": failed_stdout_text,
+                    "stdout_truncated": failed_stdout_truncated,
+                    "stdout_raw_chars": failed_stdout_raw_chars,
+                    "stderr": failed_stderr_text,
+                    "stderr_truncated": failed_stderr_truncated,
+                    "stderr_raw_chars": failed_stderr_raw_chars,
                     "exit_code": exit_code,
                 }
             )
 
         # Success path: return tool stdout directly as the primary observation payload.
-        if stdout_text:
-            return stdout_text
+        if success_stdout_text:
+            if not success_stdout_truncated:
+                return success_stdout_text
+            return (
+                f"{success_stdout_text}\n\n"
+                f"[TRUNCATED] stdout_raw_chars={success_stdout_raw_chars}, "
+                f"showing first {SKILL_TOOL_SUCCESS_STDOUT_MAX_CHARS} chars."
+            )
         return _json_dump(
             {
                 "tool": tool_name,
@@ -314,7 +368,11 @@ class SkillToolRuntime:
                 "script": script_path,
                 "timed_out": False,
                 "stdout": "",
-                "stderr": stderr_text,
+                "stdout_truncated": False,
+                "stdout_raw_chars": 0,
+                "stderr": failed_stderr_text,
+                "stderr_truncated": failed_stderr_truncated,
+                "stderr_raw_chars": failed_stderr_raw_chars,
                 "exit_code": exit_code,
             }
         )
