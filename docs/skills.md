@@ -1,91 +1,73 @@
-# Skills 机制说明
+# Skills 机制说明（ClaudeCode 风格）
 
-本文档说明当前项目中 controller / executor 两类 skill 的组织与注入方式。
+本文档提供 skill 体系的快速规范。  
+实现细节请看：`docs/skills_runtime.md`。
 
 ## 1. 总览
 
-- controller：`INDEX.md + reference` 模式（用于路由规则与 task_content 生成口径）。
-- executor：`skill.md` 插件目录模式（用于执行策略与工具调用顺序约束）。
-
-两者都通过 agent 注入到模型上下文；graph 层不承载 skill 业务细节。
-
-## 2. Controller Skills（路由知识）
-
-目录：`src/task_router_graph/skills/controller`
-
-当前入口：`src/task_router_graph/skills/controller/INDEX.md`
-
-行为要点：
-
-1. controller agent 读取 `INDEX.md`，并按引用关系加载对应 task reference 文件。
-2. controller 负责决定 `task_type + task_content`，不直接执行结果检索与回答。
-3. controller 可使用 observe 工具补充“路由所需事实”。
-
-## 3. Executor Skills（插件化扩展）
-
-目录：`src/task_router_graph/skills/executor`
-
-自动发现规则：
-
-1. 递归扫描 `skills/executor/**/skill.md`。
-2. 仅采集 frontmatter 的核心字段：
-   - `name`
-   - `description`
-   - `when_to_use`（兼容 `when-to-use`）
-3. `path` 由系统自动注入为仓库相对路径。
-4. 这些元数据会注入 `EXECUTOR_SKILLS_INDEX`，供模型先做命中判断。
-5. 命中后，executor 再通过 `read {"path":"..."}` 读取 skill 正文并执行。
-
-### 3.1 注入位置（实现口径）
-
-1. 注入发生在 executor agent，而不是 graph 编排层。
-2. 参考实现：`src/task_router_graph/agents/executor_agent.py`
-   - `_load_executor_skill_catalog()`：扫描并提取元数据
-   - `_build_executor_skill_registry()`：构建 `EXECUTOR_SKILLS_INDEX`
-   - `run_executor_task()`：在运行时注入 system prompt 占位
-3. prompt 占位在 `src/task_router_graph/prompt/executor/system.md` 的 `[EXECUTOR_SKILLS_INDEX]` 块。
-
-## 4. 新增一个 Executor Skill（标准流程）
-
-### 4.1 创建目录与文件
+- Skill 根路径由配置控制：`configs/graph.yaml -> paths.skills_root`。
+- controller / executor 都使用同一目录约定：
 
 ```text
-src/task_router_graph/skills/executor/
-  my_skill/
-    skill.md
+<skills_root>/
+  controller/
+    <skill_name>/SKILL.md
+  executor/
+    <skill_name>/SKILL.md
 ```
 
-### 4.2 写入最小 frontmatter
+- 本项目采用一次切换策略：
+  - 不再支持 `INDEX.md` 入口
+  - 不再扫描小写 `skill.md`
+
+## 2. SKILL.md frontmatter 规范
+
+每个 `SKILL.md` 必须包含：
+
+- `name`
+- `description`
+- `when_to_use`
+- `allowed-tools`
+
+示例：
 
 ```yaml
 ---
-name: my-skill
-description: 这个 skill 解决什么问题
-when_to_use: 在什么条件下应命中这个 skill
+name: time-range-info
+description: 查询时间段新闻/天气，先锚定时间再检索
+when_to_use: 用户请求含相对时间 + 时效主题
+allowed-tools: ["web_search"]
 ---
-# Skill 正文规则
 ```
 
-### 4.3 写正文规则
+校验规则（严格）：
 
-建议正文包含：
+- 缺任意必填字段：报错
+- skill 名归一化后重复：报错
+- `allowed-tools` 非字符串数组：报错
+- 声明工具但 `scripts/<name>.py|.sh` 不存在：报错
 
-1. 目标
-2. 必须顺序
-3. 禁止项
-4. 失败止损
-5. 完成判定
+## 3. skill_tool 约定
 
-## 5. 约束与建议
+observe 工具新增：`skill_tool(name, input)`。
 
-1. skill `name` 应稳定且唯一，避免归一化后冲突。
-2. `when_to_use` 要可判定，避免“泛描述”导致误命中。
-3. skill 正文应尽量给出工具调用顺序和失败止损条件。
-4. 不需要改 `graph.py`，也不需要维护 executor 的 `INDEX.md`。
+- `input` 必须是 JSON object（通过 stdin 传给脚本）。
+- 仅允许调用“当前激活 skill”（最近一次命中并读取的 `SKILL.md`）声明的 `allowed-tools`。
+- 工具脚本映射：`allowed-tools: ["x"] -> scripts/x.py|scripts/x.sh`。
+- 若同名 `.py` 与 `.sh` 同时存在，优先 `.sh`。
 
-## 6. 现有示例
+返回策略：
 
-- `src/task_router_graph/skills/executor/greeting_guide/skill.md`
-- `src/task_router_graph/skills/executor/time_range_info/skill.md`
+- 成功：直接返回脚本 `stdout` 作为 observation 主体
+- 失败：返回诊断 JSON（含 `stdout/stderr/exit_code/timed_out`）
 
-以上分别覆盖：问候引导场景、时间段信息查询（先时间锚定再外部检索）场景。
+## 4. 当前示例
+
+- `executor/greeting_guide/SKILL.md`：`allowed-tools: []`
+- `executor/time_range_info/SKILL.md`：`allowed-tools: ["web_search"]`
+- `executor/time_range_info/scripts/web_search.py`：承接原全局检索逻辑
+
+调用链示例：
+
+1. `beijing_time {}`
+2. `skill_tool {"name":"web_search","input":{"query":"...","limit":3}}`

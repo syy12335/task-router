@@ -3,6 +3,7 @@
 ## 文档导航
 
 - Skill 机制：`docs/skills.md`
+- Skill Runtime 细节：`docs/skills_runtime.md`
 - Environment 设计：`docs/environment.md`
 - Agent Memory 与视图压缩：`docs/agent_memory.md`
 - 数据格式：`docs/data_format.md`
@@ -48,8 +49,8 @@ init
 
 - 只负责：`observe` / `generate_task`
 - 输出：`Task + controller_trace`
-- 观察工具含：`read`、`ls`、`build_context_view`、`previous_failed_track`、`beijing_time`、`web_search`
-- controller skill 通过 `src/task_router_graph/skills/controller/INDEX.md` + reference 文件组织
+- 观察工具含：`read`、`ls`、`build_context_view`、`previous_failed_track`、`beijing_time`、`skill_tool`
+- controller skills 通过 `paths.skills_root/controller/<skill>/SKILL.md` 统一组织
 - LLM 输入通过 agent memory 组装；在超窗时可触发压缩
 
 ### execute（executor/functest/accutest/perftest）
@@ -60,9 +61,10 @@ init
   - `result=正在执行`
   - 记录 `dispatch_pyskill` 轨迹
 - `executor` 支持 skill 插件化：
-  - 自动扫描 `src/task_router_graph/skills/executor/**/skill.md`
-  - 仅注入元数据（`name/description/when_to_use/path`）到 `EXECUTOR_SKILLS_INDEX`
+  - 自动扫描 `paths.skills_root/executor/<skill>/SKILL.md`
+  - 注入元数据（`name/description/when_to_use/path/allowed-tools`）到 `EXECUTOR_SKILLS_INDEX`
   - 命中后再 `read path` 加载 skill 正文
+  - skill 脚本工具通过 `skill_tool(name,input)` 调用（仅允许当前激活 skill 的 `allowed-tools`）
 
 ### update
 
@@ -87,11 +89,11 @@ init
 
 ## Skill 注入链路（关键）
 
-1. Graph 层只传根路径（`executor_skills_root`）给 executor node，不负责 skill 内容拼装。
-2. Executor agent 在运行时扫描 `skill.md`，解析 frontmatter。
-3. 系统只预注入可选取元数据：`name/description/when_to_use/path`。
-4. 模型命中 skill 后，必须通过 `read path` 拉取正文，再按正文规则执行。
-5. 新增 skill 时无需改 graph 编排代码，扩展点集中在 `skills/executor` 目录。
+1. Graph 层传统一根路径 `paths.skills_root`，再派生 `controller` 与 `executor` 子目录。
+2. 运行时扫描 `SKILL.md`，解析并严格校验 frontmatter 与 `allowed-tools` 脚本映射。
+3. 系统预注入可选取元数据：`name/description/when_to_use/path/allowed-tools`。
+4. 模型命中 skill 后，先 `read path` 激活 skill，再按规则执行。
+5. 工具脚本统一走 `skill_tool`；全局 `web_search` 已下沉为 skill 脚本示例。
 
 ## 设计亮点
 

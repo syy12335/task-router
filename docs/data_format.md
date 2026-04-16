@@ -66,7 +66,7 @@
               "agent": "controller",
               "action_kind": "observe",
               "tool": "read",
-              "args": {"path": "src/task_router_graph/skills/controller/executor-task.md"},
+              "args": {"path": "src/task_router_graph/skills/controller/executor_task/SKILL.md"},
               "observation": "...",
               "reason": "...",
               "return": "..."

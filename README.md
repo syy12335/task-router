@@ -9,7 +9,7 @@
 - 回填机制：异步完成后在当前轮新增 `pyskill_task`，并回链源 task
 - 失败治理：失败分析后重试，超过上限自动收敛
 - 可观测性：`track + show_environment` 支持完整复盘
-- Skill 插件化（executor）：自动扫描 `skills/executor/**/skill.md` 并注入元数据供模型选择
+- Skill 插件化（controller/executor）：自动扫描 `SKILL.md` 并注入元数据供模型选择
 
 ## 最新流程（2026-04-15）
 
@@ -33,7 +33,7 @@ init
 
 1. 异步非阻塞闭环：workflow 任务立即返回 `running`，用户可继续下一轮，不需要等待长任务。
 2. 同轮多 task 语义：当前 round 可同时包含 `pyskill_task` 与状态汇总 task，天然支持“追问-回填-汇总”。
-3. Executor Skill 插件化：新增 skill 只需新增目录与 `skill.md`，无需改 graph、无需手工维护 executor 索引。
+3. Skill 插件化：新增 skill 只需新增目录与 `SKILL.md`（及可选 `scripts/`），无需改 graph、无需维护索引。
 4. Agent 注入而非 Graph 注入：skill 注册与注入发生在 executor agent 层，编排层保持纯状态机职责。
 5. 环境复用一致性：CLI 交互轮次复用同一 environment，行为与落盘数据口径一致。
 6. 稳定降级策略：优先 sglang，不可用时自动回退 aliyun，降低本地依赖波动影响。
@@ -45,7 +45,7 @@ init
 | 日期 | 提交 | 变化摘要 |
 |---|---|---|
 | 2026-04-16 | - | docs：对齐 skill 插件架构与扩展方式 |
-| 2026-04-15 | `d889c46` | 技能元数据驱动执行：executor 扫描 `skill.md` 并注入 `name/description/when_to_use/path` |
+| 2026-04-15 | `d889c46` | 技能元数据驱动执行：executor 扫描 skill 文档并注入 `name/description/when_to_use/path`（后续已迁移为 `SKILL.md`） |
 | 2026-04-15 | `19f9def` | 状态追问快捷汇总；controller observe 参数收敛 |
 | 2026-04-15 | `b4d7de1` | workflow 非阻塞回填；交互态 environment 复用 |
 | 2026-04-15 | `c036700` | `normal` 统一更名为 `executor` |
@@ -72,6 +72,9 @@ runtime:
   context_enabled: true
   context_window_tokens: 3000
   context_view_target_tokens: 600
+
+paths:
+  skills_root: src/task_router_graph/skills
 ```
 
 设置模型后端：
@@ -88,21 +91,24 @@ export SGLANG_API_KEY=EMPTY
 
 ## Executor Skill 插件扩展
 
-新增 executor skill 只需要新增一个目录和一个 `skill.md`：
+新增 executor skill 只需要新增一个目录和一个 `SKILL.md`（可选 `scripts/`）：
 
 ```text
 src/task_router_graph/skills/executor/
   your_skill_name/
-    skill.md
+    SKILL.md
+    scripts/
+      your_tool.py
 ```
 
-`skill.md` 约定（frontmatter）：
+`SKILL.md` 约定（frontmatter）：
 
 ```yaml
 ---
 name: your-skill-name
 description: 这个 skill 解决什么问题
 when_to_use: 什么时候应该命中这个 skill
+allowed-tools: ["your_tool"]
 ---
 # 这里写具体执行规则
 ```
@@ -111,7 +117,7 @@ when_to_use: 什么时候应该命中这个 skill
 
 - `path` 字段由系统自动注入为文件真实路径（无需手写）。
 - executor 只拿元数据做“是否命中”判断；命中后再 `read path` 读取正文。
-- 不需要改 `graph.py`，也不需要维护 `src/task_router_graph/skills/executor/INDEX.md`。
+- 不需要改 `graph.py`，也不需要维护任何 `INDEX.md`。
 
 ## 运行
 
@@ -167,6 +173,7 @@ var/runs/                 # 运行输出
 
 - `docs/design.md`：流程与节点设计
 - `docs/skills.md`：skills 组织、自动扫描与注入机制
+- `docs/skills_runtime.md`：skills 加载校验与 skill_tool 运行时细节
 - `docs/environment.md`：environment 数据结构
 - `docs/agent_memory.md`：agent memory 与 environment 视图压缩机制
 - `docs/data_format.md`：输入输出格式

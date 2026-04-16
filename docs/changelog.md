@@ -6,8 +6,9 @@
 
 | 日期 | 提交 | 主题 | 影响面 |
 |---|---|---|---|
+| 2026-04-16 | - | Skill 体系切换为 ClaudeCode 风格 | 统一 `SKILL.md + scripts + allowed-tools`，新增 `paths.skills_root`，`web_search` 下沉到 `skill_tool` |
 | 2026-04-16 | - | docs 对齐：skill 插件化架构与扩展规范 | 文档与当前实现一致，新增 `docs/skills.md`，降低新增 skill 的认知成本 |
-| 2026-04-15 | `d889c46` | 技能元数据驱动执行 | executor 自动扫描 `skill.md`，注入 `name/description/when_to_use/path` 供模型选择 |
+| 2026-04-15 | `d889c46` | 技能元数据驱动执行 | executor 自动扫描 `SKILL.md`，注入 `name/description/when_to_use/path` 供模型选择 |
 | 2026-04-15 | `e11424c` | 收敛 executor 失败路径与约束 | 减少失败污染与无效重试，提高执行稳定性 |
 | 2026-04-15 | `b0beb5d` | 引入 agent memory；environment 增加视图级压缩 | 降低 step 上下文拼接噪声与超窗风险；不改变落盘 schema |
 | 2026-04-15 | `19f9def` | 状态追问快捷汇总；controller observe 参数 schema 收敛 | 减少“现在怎么样了”场景下的无效 observe 重试和 `read` 参数错误 |
@@ -32,5 +33,6 @@
 
 1. `docs/design.md`：先看编排、分支语义与 skill 注入链路
 2. `docs/skills.md`：再看 skill 目录规范、元数据注入与扩展步骤
-3. `docs/environment.md`：再看落盘结构与异步回填口径
-4. `docs/agent_memory.md`：最后看 memory 与视图压缩机制
+3. `docs/skills_runtime.md`：再看加载校验、skill_tool 契约与脚本执行细节
+4. `docs/environment.md`：再看落盘结构与异步回填口径
+5. `docs/agent_memory.md`：最后看 memory 与视图压缩机制
