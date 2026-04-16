@@ -8,7 +8,7 @@
 
 1. `TASK_CONTENT`：本轮任务内容
 2. `TASKS_JSON`：最近任务摘要视图（通常包含最近 3 条 task 的核心字段，不含 trace）
-3. `EXECUTOR_SKILLS_INDEX`：executor 技能元数据列表（`name/description/when_to_use/path/allowed-tools`）
+3. `EXECUTOR_SKILLS_INDEX`：executor 技能元数据列表（`name/description/when_to_use/skill-mode/path/allowed-tools`）
 
 你还可以按需调用 observe 工具（谨慎使用）：
 
@@ -30,6 +30,7 @@
 3. `input` 必须是 JSON object。
 4. `allowed-tools: []` 的 skill 不应调用 `skill_tool`。
 5. 若脚本报错、超时或 exit code 非 0，应在 `task_result` 中给出可诊断说明后尽快 `finish`。
+6. 若命中 `skill-mode=pyskill` 的 skill 并成功派发 `skill_tool`，应 `finish` 且 `task_status=running`。
 
 ## 对话引导硬规则
 
@@ -86,7 +87,7 @@ finish 动作：
 ```json
 {
   "action_kind": "finish",
-  "task_status": "done|failed",
+  "task_status": "done|failed|running",
   "task_result": "executor 场景下应直接给出基于用户输入的答复正文",
   "reason": "为什么现在可以结束"
 }

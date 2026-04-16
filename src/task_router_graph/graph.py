@@ -20,6 +20,7 @@ from .agents.async_workflows import (
 )
 from .agents.agent_utils import extract_text, parse_json_object
 from .agents.memory import ContextCompressionOptions
+from .agents.pyskill_runtime import PYSKILL_RUNTIME
 from .llm import build_chat_model
 from .nodes import (
     failure_diagnosis_node,
@@ -96,6 +97,7 @@ class TaskRouterGraph:
         default_task_type = str(runtime_cfg.get("default_task_type", "executor")).strip().lower()
         self._default_task_type = default_task_type if default_task_type in {"executor", "functest", "accutest", "perftest"} else "executor"
         self._max_executor_steps = int(runtime_cfg.get("max_executor_steps", 4))
+        self._pyskill_timeout_sec = max(5, int(runtime_cfg.get("pyskill_timeout_sec", 180)))
         self._context_options = ContextCompressionOptions(
             enabled=bool(runtime_cfg.get("context_enabled", True)),
             window_tokens=int(runtime_cfg.get("context_window_tokens", 3000)),
@@ -142,6 +144,7 @@ class TaskRouterGraph:
         builder.add_node("perftest", self._perftest_step)
         builder.add_node("update", self._update_step)
         builder.add_node("failure_diagnose", self._failure_diagnose_step)
+        builder.add_node("pre_reply_collect", self._pre_reply_collect_step)
         builder.add_node("final_reply", self._reply_step)
 
         builder.add_edge(START, "init")
@@ -174,10 +177,11 @@ class TaskRouterGraph:
             {
                 "failure_diagnose": "failure_diagnose",
                 "route": "route",
-                "final_reply": "final_reply",
+                "final_reply": "pre_reply_collect",
             },
         )
         builder.add_edge("failure_diagnose", "route")
+        builder.add_edge("pre_reply_collect", "final_reply")
         builder.add_edge("final_reply", END)
 
         return builder.compile()
@@ -186,6 +190,7 @@ class TaskRouterGraph:
         run_id = timestamp_tag()
 
         environment = state["environment"]
+        self._fail_stale_running_tasks(environment=environment)
         round_item = environment.start_round(user_input=state["user_input"])
 
         return {
@@ -288,12 +293,14 @@ class TaskRouterGraph:
             context_options=self._context_options,
             environment_context_compress=self._environment_context_compress,
         )
+        workflow_key = self._extract_dispatched_run_id(agent_track=agent_track)
+        workflow_pending = bool(workflow_key and str(task.status).strip().lower() == "running")
         return {
             "task": task,
             "reply": reply,
             "agent_track": agent_track,
-            "workflow_pending": False,
-            "workflow_key": "",
+            "workflow_pending": workflow_pending,
+            "workflow_key": workflow_key,
             "skip_route": False,
         }
 
@@ -331,6 +338,23 @@ class TaskRouterGraph:
             "environment": environment,
             "task": task,
         }
+
+    def _pre_reply_collect_step(self, state: GraphState) -> GraphState:
+        environment = state["environment"]
+        current_round_id = int(state.get("round_id", 0))
+        if current_round_id <= 0:
+            return {"environment": environment}
+
+        self._collect_completed_workflow_jobs(
+            environment=environment,
+            current_round_id=current_round_id,
+        )
+
+        task = state.get("task")
+        if isinstance(task, Task):
+            refreshed = self._refresh_task_from_environment(environment=environment, task=task)
+            return {"environment": environment, "task": refreshed}
+        return {"environment": environment}
 
     def _reply_step(self, state: GraphState) -> GraphState:
         reply = reply_node(
@@ -488,6 +512,28 @@ class TaskRouterGraph:
         return f"{workflow_type}:{run_id}:{round_id}:{task_turn + 1}"
 
     def _collect_completed_workflow_jobs(self, *, environment: Environment, current_round_id: int) -> list[dict[str, Any]]:
+        collected_items: list[dict[str, Any]] = []
+        collected_items.extend(
+            self._collect_completed_thread_workflow_jobs(
+                environment=environment,
+                current_round_id=current_round_id,
+            )
+        )
+        collected_items.extend(
+            self._collect_completed_pyskill_jobs(
+                environment=environment,
+                current_round_id=current_round_id,
+            )
+        )
+        collected_items.extend(
+            self._collect_stale_running_pyskill_tasks(
+                environment=environment,
+                current_round_id=current_round_id,
+            )
+        )
+        return collected_items
+
+    def _collect_completed_thread_workflow_jobs(self, *, environment: Environment, current_round_id: int) -> list[dict[str, Any]]:
         ready_keys: list[str] = []
         with self._workflow_lock:
             for workflow_key, payload in self._workflow_jobs.items():
@@ -516,53 +562,50 @@ class TaskRouterGraph:
                 future=future,
             )
 
-            completion_event = "workflow_complete" if status == "done" else "workflow_fail"
-            pyskill_task = Task(
-                type="pyskill_task",
-                content=source_content,
-                status=status,
-                result=result,
-            )
-            pyskill_record = environment.add_task(
-                round_id=current_round_id,
-                track=[
-                    {
-                        "agent": "pyskill",
-                        "event": completion_event,
-                        "workflow_type": workflow_type,
-                        "run_id": workflow_key,
-                        "source_round_id": source_round_id,
-                        "source_task_id": source_task_id,
-                        "task_status": status,
-                        "task_result": result,
-                        "return": {
-                            "workflow_type": workflow_type,
-                            "task_status": status,
-                            "task_result": result,
-                            "run_id": workflow_key,
-                        },
-                    }
-                ],
-                task=pyskill_task,
-                reply="",
-            )
-            self._link_source_task_to_pyskill(
+            collect_item = self._finalize_pyskill_completion(
                 environment=environment,
+                current_round_id=current_round_id,
+                workflow_type=workflow_type,
+                run_id=workflow_key,
+                source_content=source_content,
                 source_round_id=source_round_id,
                 source_task_id=source_task_id,
-                pyskill_round_id=current_round_id,
-                pyskill_task_id=pyskill_record.task_id,
                 completion_status=status,
+                completion_result=result,
+                pid=0,
             )
-            collected_items.append(
-                {
-                    "workflow_type": workflow_type,
-                    "status": status,
-                    "result": result,
-                    "pyskill_ref": f"pyskill_task(round_id={current_round_id}, task_id={pyskill_record.task_id})",
-                }
-            )
+            if isinstance(collect_item, dict):
+                collected_items.append(collect_item)
 
+        return collected_items
+
+    def _collect_completed_pyskill_jobs(self, *, environment: Environment, current_round_id: int) -> list[dict[str, Any]]:
+        collected_items: list[dict[str, Any]] = []
+        finished_jobs = PYSKILL_RUNTIME.collect_finished(timeout_sec=self._pyskill_timeout_sec)
+        for item in finished_jobs:
+            if not isinstance(item, dict):
+                continue
+            run_id = str(item.get("run_id", "")).strip()
+            workflow_type = str(item.get("workflow_type", "pyskill")).strip() or "pyskill"
+            source_content = str(item.get("source_content", "")).strip()
+            source_round_id = self._safe_int(item.get("source_round_id", 0))
+            source_task_id = self._safe_int(item.get("source_task_id", 0))
+            pid = self._safe_int(item.get("pid", 0))
+            status, result = self._resolve_pyskill_process_result(item)
+            collect_item = self._finalize_pyskill_completion(
+                environment=environment,
+                current_round_id=current_round_id,
+                workflow_type=workflow_type,
+                run_id=run_id,
+                source_content=source_content,
+                source_round_id=source_round_id,
+                source_task_id=source_task_id,
+                completion_status=status,
+                completion_result=result,
+                pid=pid,
+            )
+            if isinstance(collect_item, dict):
+                collected_items.append(collect_item)
         return collected_items
 
     def _bind_workflow_source_task(self, *, workflow_key: str, environment: Environment, round_id: int) -> None:
@@ -580,14 +623,32 @@ class TaskRouterGraph:
         if latest_task_id <= 0:
             return
 
+        latest_task_type = ""
+        latest_task_content = ""
+        for round_item in environment.rounds:
+            if int(round_item.round_id) != int(round_id):
+                continue
+            if round_item.tasks:
+                latest = round_item.tasks[-1]
+                latest_task_type = str(latest.task.type).strip()
+                latest_task_content = str(latest.task.content).strip()
+            break
+
         with self._workflow_lock:
             payload = self._workflow_jobs.get(workflow_key)
-            if not isinstance(payload, dict):
+            if isinstance(payload, dict):
+                if self._safe_int(payload.get("source_task_id", 0)) <= 0:
+                    payload["source_round_id"] = int(round_id)
+                    payload["source_task_id"] = int(latest_task_id)
                 return
-            if self._safe_int(payload.get("source_task_id", 0)) > 0:
-                return
-            payload["source_round_id"] = int(round_id)
-            payload["source_task_id"] = int(latest_task_id)
+
+        PYSKILL_RUNTIME.bind_source(
+            run_id=workflow_key,
+            source_round_id=int(round_id),
+            source_task_id=int(latest_task_id),
+            source_task_type=latest_task_type,
+            source_content=latest_task_content,
+        )
 
     def _link_source_task_to_pyskill(
         self,
@@ -598,6 +659,7 @@ class TaskRouterGraph:
         pyskill_round_id: int,
         pyskill_task_id: int,
         completion_status: str,
+        run_id: str,
     ) -> None:
         if source_round_id <= 0 or source_task_id <= 0:
             return
@@ -616,9 +678,11 @@ class TaskRouterGraph:
                     {
                         "agent": "pyskill",
                         "event": "link_pyskill_result",
+                        "run_id": run_id,
                         "task_status": task_item.task.status,
                         "task_result": task_item.task.result,
                         "return": {
+                            "run_id": run_id,
                             "source_round_id": source_round_id,
                             "source_task_id": source_task_id,
                             "pyskill_round_id": pyskill_round_id,
@@ -628,6 +692,246 @@ class TaskRouterGraph:
                 )
                 environment.updated_at = datetime.now(timezone.utc).isoformat()
                 return
+
+    def _finalize_pyskill_completion(
+        self,
+        *,
+        environment: Environment,
+        current_round_id: int,
+        workflow_type: str,
+        run_id: str,
+        source_content: str,
+        source_round_id: int,
+        source_task_id: int,
+        completion_status: str,
+        completion_result: str,
+        pid: int,
+    ) -> dict[str, Any] | None:
+        run_id_value = str(run_id).strip()
+        if not run_id_value:
+            return None
+        if self._is_pyskill_run_finalized(environment=environment, run_id=run_id_value):
+            return None
+
+        status = str(completion_status).strip().lower()
+        if status not in {"done", "failed"}:
+            status = "failed"
+        result = str(completion_result).strip() or f"{workflow_type or 'pyskill'} {status} ({run_id_value})"
+        completion_event = "workflow_complete" if status == "done" else "workflow_fail"
+
+        pyskill_task = Task(
+            type="pyskill_task",
+            content=source_content,
+            status=status,
+            result=result,
+        )
+        pyskill_record = environment.add_task(
+            round_id=current_round_id,
+            track=[
+                {
+                    "agent": "pyskill",
+                    "event": completion_event,
+                    "workflow_type": str(workflow_type).strip() or "pyskill",
+                    "run_id": run_id_value,
+                    "pid": int(pid or 0),
+                    "source_round_id": source_round_id,
+                    "source_task_id": source_task_id,
+                    "task_status": status,
+                    "task_result": result,
+                    "return": {
+                        "workflow_type": str(workflow_type).strip() or "pyskill",
+                        "task_status": status,
+                        "task_result": result,
+                        "run_id": run_id_value,
+                        "pid": int(pid or 0),
+                    },
+                }
+            ],
+            task=pyskill_task,
+            reply="",
+        )
+        self._link_source_task_to_pyskill(
+            environment=environment,
+            source_round_id=source_round_id,
+            source_task_id=source_task_id,
+            pyskill_round_id=current_round_id,
+            pyskill_task_id=pyskill_record.task_id,
+            completion_status=status,
+            run_id=run_id_value,
+        )
+        return {
+            "workflow_type": str(workflow_type).strip() or "pyskill",
+            "status": status,
+            "result": result,
+            "run_id": run_id_value,
+            "pyskill_ref": f"pyskill_task(round_id={current_round_id}, task_id={pyskill_record.task_id})",
+        }
+
+    def _is_pyskill_run_finalized(self, *, environment: Environment, run_id: str) -> bool:
+        run_id_value = str(run_id).strip()
+        if not run_id_value:
+            return False
+        for round_item in environment.rounds:
+            for task_item in round_item.tasks:
+                if str(task_item.task.type).strip() == "pyskill_task":
+                    for step in task_item.track:
+                        if not isinstance(step, dict):
+                            continue
+                        if str(step.get("run_id", "")).strip() == run_id_value:
+                            event = str(step.get("event", "")).strip().lower()
+                            if event in {"workflow_complete", "workflow_fail"}:
+                                return True
+                for step in task_item.track:
+                    if not isinstance(step, dict):
+                        continue
+                    if str(step.get("event", "")).strip().lower() != "link_pyskill_result":
+                        continue
+                    if str(step.get("run_id", "")).strip() == run_id_value:
+                        return True
+        return False
+
+    def _resolve_pyskill_process_result(self, payload: dict[str, Any]) -> tuple[str, str]:
+        timed_out = bool(payload.get("timed_out", False))
+        exit_code = self._safe_int(payload.get("exit_code", -1), -1)
+        run_id = str(payload.get("run_id", "")).strip()
+        workflow_type = str(payload.get("workflow_type", "pyskill")).strip() or "pyskill"
+        stdout_text = str(payload.get("stdout", "")).strip()
+        stderr_text = str(payload.get("stderr", "")).strip()
+
+        if timed_out:
+            return "failed", f"{workflow_type} timed out: run_id={run_id}"
+
+        parsed = self._parse_last_json_line(stdout_text)
+
+        if isinstance(parsed, dict):
+            status = str(parsed.get("task_status", "")).strip().lower()
+            result = str(parsed.get("task_result", "")).strip()
+            if status in {"done", "failed"} and result:
+                return status, result
+
+        if exit_code == 0:
+            if stdout_text:
+                return "done", stdout_text
+            return "done", f"{workflow_type} completed ({run_id})"
+
+        err = stderr_text or stdout_text or f"exit_code={exit_code}"
+        return "failed", f"{workflow_type} failed ({run_id}): {err}"
+
+    def _parse_last_json_line(self, stdout_text: str) -> dict[str, Any] | None:
+        text = str(stdout_text).strip()
+        if not text:
+            return None
+
+        lines = [line.strip() for line in text.splitlines() if line.strip()]
+        if not lines:
+            return None
+
+        for candidate in (lines[-1], text):
+            try:
+                parsed = json.loads(candidate)
+            except Exception:
+                continue
+            if isinstance(parsed, dict):
+                return parsed
+        return None
+
+    def _collect_stale_running_pyskill_tasks(self, *, environment: Environment, current_round_id: int) -> list[dict[str, Any]]:
+        collected_items: list[dict[str, Any]] = []
+        running_tasks = self._find_running_pyskill_sources(environment=environment)
+        for item in running_tasks:
+            run_id = str(item.get("run_id", "")).strip()
+            if not run_id:
+                continue
+            if PYSKILL_RUNTIME.has_active_job(run_id=run_id):
+                continue
+            if self._is_pyskill_run_finalized(environment=environment, run_id=run_id):
+                continue
+            source_content = str(item.get("source_content", "")).strip()
+            source_round_id = self._safe_int(item.get("source_round_id", 0))
+            source_task_id = self._safe_int(item.get("source_task_id", 0))
+            collect_item = self._finalize_pyskill_completion(
+                environment=environment,
+                current_round_id=current_round_id,
+                workflow_type="pyskill",
+                run_id=run_id,
+                source_content=source_content,
+                source_round_id=source_round_id,
+                source_task_id=source_task_id,
+                completion_status="failed",
+                completion_result=f"pyskill process missing or dead before completion: run_id={run_id}",
+                pid=self._safe_int(item.get("pid", 0)),
+            )
+            if isinstance(collect_item, dict):
+                collected_items.append(collect_item)
+        return collected_items
+
+    def _find_running_pyskill_sources(self, *, environment: Environment) -> list[dict[str, Any]]:
+        matches: list[dict[str, Any]] = []
+        for round_item in environment.rounds:
+            for task_item in round_item.tasks:
+                if str(task_item.task.status).strip().lower() != "running":
+                    continue
+                run_id, pid = self._extract_run_id_and_pid_from_task(task_item.task)
+                if not run_id:
+                    continue
+                matches.append(
+                    {
+                        "source_round_id": int(round_item.round_id),
+                        "source_task_id": int(task_item.task_id),
+                        "source_content": str(task_item.task.content).strip(),
+                        "run_id": run_id,
+                        "pid": pid,
+                    }
+                )
+        return matches
+
+    def _extract_run_id_and_pid_from_task(self, task: Task) -> tuple[str, int]:
+        content_text = str(task.content).strip()
+        marker_pattern = re.compile(r"\[pyskill pid=(\d+)\s+run_id=([^\]\s]+)\]")
+        matched = marker_pattern.search(content_text)
+        if matched:
+            return str(matched.group(2)).strip(), self._safe_int(matched.group(1), 0)
+
+        return "", 0
+
+    def _fail_stale_running_tasks(self, *, environment: Environment) -> None:
+        if not environment.rounds:
+            return
+        target_round_id = int(max((int(item.round_id) for item in environment.rounds), default=0))
+        if target_round_id <= 0:
+            return
+        self._collect_stale_running_pyskill_tasks(
+            environment=environment,
+            current_round_id=target_round_id,
+        )
+
+    def _refresh_task_from_environment(self, *, environment: Environment, task: Task) -> Task:
+        run_id, _ = self._extract_run_id_and_pid_from_task(task)
+        if not run_id:
+            return task
+        for round_item in environment.rounds:
+            for task_item in round_item.tasks:
+                task_run_id, _ = self._extract_run_id_and_pid_from_task(task_item.task)
+                if task_run_id != run_id:
+                    continue
+                return Task.from_dict(task_item.task.to_dict())
+        return task
+
+    def _extract_dispatched_run_id(self, *, agent_track: list[dict[str, Any]]) -> str:
+        for item in reversed(agent_track):
+            if not isinstance(item, dict):
+                continue
+            if str(item.get("event", "")).strip().lower() != "dispatch_pyskill":
+                continue
+            run_id = str(item.get("run_id", "")).strip()
+            if run_id:
+                return run_id
+            payload = item.get("return")
+            if isinstance(payload, dict):
+                run_id = str(payload.get("run_id", "")).strip()
+                if run_id:
+                    return run_id
+        return ""
 
     def _resolve_workflow_result(
         self,
@@ -922,7 +1226,13 @@ class TaskRouterGraph:
                 status = str(task_item.task.status).strip().lower()
                 if status != "running":
                     continue
-                refs.append(f"round_id={round_item.round_id}, task_id={task_item.task_id}, type={task_item.task.type}")
+                run_id, pid = self._extract_run_id_and_pid_from_task(task_item.task)
+                if run_id:
+                    refs.append(
+                        f"round_id={round_item.round_id}, task_id={task_item.task_id}, type={task_item.task.type}, run_id={run_id}, pid={pid}"
+                    )
+                else:
+                    refs.append(f"round_id={round_item.round_id}, task_id={task_item.task_id}, type={task_item.task.type}")
         return refs[-5:]
 
     def _is_status_query(self, user_input: str) -> bool:

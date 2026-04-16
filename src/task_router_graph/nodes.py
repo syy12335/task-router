@@ -30,6 +30,7 @@ from .agents.skill_registry import (
     build_skill_registry_text,
     load_skill_catalog,
 )
+from .agents.pyskill_runtime import PYSKILL_RUNTIME
 from .agents.async_workflows import (
     run_accutest_async_workflow,
     run_functest_async_workflow,
@@ -214,6 +215,7 @@ class SkillToolRuntime:
         self.skill_catalog = skill_catalog
         self.timeout_sec = max(1, int(timeout_sec))
         self.active_skill: dict[str, Any] | None = None
+        self._pyskill_dispatched_run_id: str = ""
         self._skill_file_index: dict[str, dict[str, Any]] = {}
         for entry in skill_catalog.values():
             skill_file_abs = str(entry.get("skill_file_abs", "")).strip()
@@ -260,6 +262,33 @@ class SkillToolRuntime:
             return ERR_SKILL_TOOL_SCRIPT_NOT_CONFIGURED_TEMPLATE.format(
                 tool_name=tool_name,
                 skill_name=active_skill.get("name", "<unknown>"),
+            )
+
+        skill_mode = str(active_skill.get("skill_mode", "sync")).strip().lower() or "sync"
+        if skill_mode == "pyskill":
+            if self._pyskill_dispatched_run_id:
+                return _json_dump(
+                    {
+                        "accepted": False,
+                        "error": "pyskill already dispatched for current task runtime",
+                        "run_id": self._pyskill_dispatched_run_id,
+                    }
+                )
+
+            dispatch_payload = PYSKILL_RUNTIME.dispatch(
+                workflow_type="pyskill",
+                tool_name=tool_name,
+                skill_name=str(active_skill.get("name", "")),
+                script_path=script_path,
+                cwd=str(active_skill.get("skill_dir_abs", self.workspace_root)),
+                input_payload=dict(input_payload),
+            )
+            if bool(dispatch_payload.get("accepted", False)):
+                self._pyskill_dispatched_run_id = str(dispatch_payload.get("run_id", "")).strip()
+            return _json_dump(
+                {
+                    "pyskill_dispatch": dispatch_payload,
+                }
             )
 
         command = ["bash", script_path] if script_path.endswith(".sh") else [sys.executable, script_path]
@@ -509,6 +538,37 @@ def _build_executor_track(*, executor: str, event: str, task: Task) -> list[dict
     ]
 
 
+def _extract_pyskill_dispatch(executor_observations: Any) -> dict[str, Any] | None:
+    if not isinstance(executor_observations, list):
+        return None
+    for item in reversed(executor_observations):
+        if not isinstance(item, dict):
+            continue
+        if str(item.get("tool", "")).strip() != TOOL_SKILL_TOOL:
+            continue
+        raw = item.get("observation_raw")
+        if not isinstance(raw, dict):
+            continue
+        payload = raw.get("pyskill_dispatch")
+        if not isinstance(payload, dict):
+            continue
+        if not bool(payload.get("accepted", False)):
+            continue
+        run_id = str(payload.get("run_id", "")).strip()
+        if not run_id:
+            continue
+        return payload
+    return None
+
+
+def _append_pyskill_marker_to_task_content(*, task: Task, run_id: str, pid: int) -> None:
+    marker = f"[pyskill pid={pid} run_id={run_id}]"
+    content = str(task.content).strip()
+    if marker in content:
+        return
+    task.content = f"{content}\n{marker}" if content else marker
+
+
 def route_node(
     *,
     llm: Any,
@@ -675,7 +735,31 @@ def executor_node(
     task.result = str(result.get("task_result", "")).strip()
     reply = ""
 
-    executor_trace = _build_executor_trace(result.get("executor_trace", []))
+    raw_executor_trace = result.get("executor_trace", [])
+    executor_trace = _build_executor_trace(raw_executor_trace)
+    pyskill_dispatch = _extract_pyskill_dispatch(raw_executor_trace)
+    if isinstance(pyskill_dispatch, dict):
+        run_id = str(pyskill_dispatch.get("run_id", "")).strip()
+        try:
+            pid = int(pyskill_dispatch.get("pid", 0) or 0)
+        except Exception:
+            pid = 0
+        task.status = "running"
+        task.result = "正在执行"
+        if run_id:
+            _append_pyskill_marker_to_task_content(task=task, run_id=run_id, pid=pid)
+        executor_trace.append(
+            {
+                "agent": "pyskill",
+                "event": "dispatch_pyskill",
+                "workflow_type": str(pyskill_dispatch.get("workflow_type", "pyskill")).strip() or "pyskill",
+                "run_id": run_id,
+                "pid": pid,
+                "task_status": task.status,
+                "task_result": task.result,
+                "return": dict(pyskill_dispatch),
+            }
+        )
     executor_trace.extend(_build_executor_track(executor="executor", event="execute", task=task))
     return task, reply, executor_trace
 

@@ -21,3 +21,4 @@ var/**
 hf-cache
 model-cache
 *.log
+.pyskill_runtime/

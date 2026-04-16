@@ -75,7 +75,7 @@ _EXECUTOR_ACTION_SCHEMA: dict[str, Any] = {
             "type": "object",
             "properties": {
                 "action_kind": {"const": "finish"},
-                "task_status": {"type": "string", "enum": ["done", "failed"]},
+                "task_status": {"type": "string", "enum": ["done", "failed", "running"]},
                 "task_result": {"type": "string", "minLength": 1},
                 "reason": {"type": "string", "minLength": 1},
             },
@@ -255,6 +255,7 @@ class ExecutorAgent:
                     "args": tool_args if isinstance(tool_args, dict) else {},
                     "reason": reason,
                     "observation": observation_text,
+                    "observation_raw": observation_result if isinstance(observation_result, dict) else None,
                 }
             )
             memory.append_tool(observation_text)

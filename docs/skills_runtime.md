@@ -42,12 +42,22 @@ paths:
 
 1. 扫描 `<skills_root>/<agent>/**/SKILL.md`
 2. 解析 frontmatter
-3. 校验必填字段：`name/description/when_to_use/allowed-tools`
+3. 校验必填字段：`name/description/when_to_use/allowed-tools`（可选：`skill-mode`）
 4. 校验 `allowed-tools` 为字符串数组
 5. 校验脚本映射：`scripts/<tool>.sh|scripts/<tool>.py`（`.sh` 优先）
 6. 构建 registry 元数据并注入 prompt
 
 严格失败策略：任一 skill 不合法会直接报错，避免“部分有效、部分失效”的隐性状态。
+
+`skill-mode` 取值：
+
+- `sync`（默认）：保持当前阻塞式脚本执行
+- `pyskill`：非阻塞派发为后台进程，由 graph 在后续轮统一回收并写回 `pyskill_task`
+
+当 `skill-mode=pyskill` 时，要求：
+
+- `allowed-tools` 必须且仅 1 个
+- 工具脚本必须为 `.py` 入口
 
 ## 4. Prompt 注入模型
 
@@ -56,6 +66,7 @@ controller / executor 均注入 skill 元数据（而非正文全文）：
 - `name`
 - `description`
 - `when_to_use`
+- `skill-mode`
 - `path`
 - `allowed-tools`
 

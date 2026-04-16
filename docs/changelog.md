@@ -6,6 +6,7 @@
 
 | 日期 | 提交 | 主题 | 影响面 |
 |---|---|---|---|
+| 2026-04-16 | - | 引入 pyskill 模式（skill-mode）与进程巡检回填 | skill_tool 支持非阻塞进程派发；pre-reply 巡检可对死进程/超时自动 failed 收敛；支持重启后 running 任务兜底 |
 | 2026-04-16 | - | Skill 体系切换为 ClaudeCode 风格 | 统一 `SKILL.md + scripts + allowed-tools`，新增 `paths.skills_root`，`web_search` 下沉到 `skill_tool` |
 | 2026-04-16 | - | docs 对齐：skill 插件化架构与扩展规范 | 文档与当前实现一致，新增 `docs/skills.md`，降低新增 skill 的认知成本 |
 | 2026-04-15 | `d889c46` | 技能元数据驱动执行 | executor 自动扫描 `SKILL.md`，注入 `name/description/when_to_use/path` 供模型选择 |

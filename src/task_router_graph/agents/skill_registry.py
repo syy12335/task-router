@@ -10,6 +10,9 @@ import yaml
 from ..protocol_constants import FM_ALLOWED_TOOLS, SKILL_FILENAME
 
 REQUIRED_FRONTMATTER_FIELDS = ("name", "description", "when_to_use", FM_ALLOWED_TOOLS)
+SKILL_MODE_FIELD = "skill-mode"
+SKILL_MODE_SYNC = "sync"
+SKILL_MODE_PYSKILL = "pyskill"
 
 
 class SkillRegistryError(ValueError):
@@ -82,6 +85,17 @@ def _resolve_script_for_tool(*, skill_dir: Path, tool_name: str) -> Path:
     )
 
 
+def _validate_skill_mode(raw: Any, *, skill_path: Path) -> str:
+    if raw is None:
+        return SKILL_MODE_SYNC
+    mode = str(raw).strip().lower()
+    if mode in {SKILL_MODE_SYNC, SKILL_MODE_PYSKILL}:
+        return mode
+    raise SkillRegistryError(
+        f"{SKILL_MODE_FIELD} must be one of ['{SKILL_MODE_SYNC}', '{SKILL_MODE_PYSKILL}']: {skill_path}"
+    )
+
+
 def load_skill_catalog(*, workspace_root: Path, skills_root: str, agent: str) -> dict[str, dict[str, Any]]:
     agent_root = (workspace_root / skills_root / agent).resolve()
     if not agent_root.exists() or not agent_root.is_dir():
@@ -106,6 +120,7 @@ def load_skill_catalog(*, workspace_root: Path, skills_root: str, agent: str) ->
         name = str(frontmatter.get("name", "")).strip()
         description = str(frontmatter.get("description", "")).strip()
         when_to_use = str(frontmatter.get("when_to_use", "")).strip()
+        skill_mode = _validate_skill_mode(frontmatter.get(SKILL_MODE_FIELD), skill_path=skill_file)
         allowed_tools = _validate_allowed_tools(frontmatter.get(FM_ALLOWED_TOOLS), skill_path=skill_file)
 
         if not name:
@@ -114,6 +129,10 @@ def load_skill_catalog(*, workspace_root: Path, skills_root: str, agent: str) ->
             raise SkillRegistryError(f"field 'description' must be non-empty: {skill_file}")
         if not when_to_use:
             raise SkillRegistryError(f"field 'when_to_use' must be non-empty: {skill_file}")
+        if skill_mode == SKILL_MODE_PYSKILL and len(allowed_tools) != 1:
+            raise SkillRegistryError(
+                f"{SKILL_MODE_FIELD}=pyskill requires exactly one allowed tool: {skill_file}"
+            )
 
         normalized_key = normalize_skill_key(name)
         if not normalized_key:
@@ -126,6 +145,10 @@ def load_skill_catalog(*, workspace_root: Path, skills_root: str, agent: str) ->
         script_map_abs: dict[str, str] = {}
         for tool_name in allowed_tools:
             script_path = _resolve_script_for_tool(skill_dir=skill_dir, tool_name=tool_name)
+            if skill_mode == SKILL_MODE_PYSKILL and script_path.suffix != ".py":
+                raise SkillRegistryError(
+                    f"{SKILL_MODE_FIELD}=pyskill requires python script entry (.py): {script_path}"
+                )
             script_map[tool_name] = script_path.relative_to(workspace_root).as_posix()
             script_map_abs[tool_name] = str(script_path.resolve())
 
@@ -134,6 +157,7 @@ def load_skill_catalog(*, workspace_root: Path, skills_root: str, agent: str) ->
             "name": name,
             "description": description,
             "when_to_use": when_to_use,
+            "skill_mode": skill_mode,
             "allowed_tools": list(allowed_tools),
             "path": skill_file.relative_to(workspace_root).as_posix(),
             "skill_dir": skill_dir.relative_to(workspace_root).as_posix(),
@@ -156,10 +180,10 @@ def build_skill_registry_text(*, catalog: dict[str, dict[str, Any]], agent: str)
                 "name": str(entry.get("name", "")).strip(),
                 "description": str(entry.get("description", "")).strip(),
                 "when_to_use": str(entry.get("when_to_use", "")).strip(),
+                SKILL_MODE_FIELD: str(entry.get("skill_mode", SKILL_MODE_SYNC)).strip() or SKILL_MODE_SYNC,
                 "path": str(entry.get("path", "")).strip(),
                 FM_ALLOWED_TOOLS: list(entry.get("allowed_tools", [])),
             }
         )
 
     return "\n\n".join([title, json.dumps(entries, ensure_ascii=False, indent=2)]).strip()
-

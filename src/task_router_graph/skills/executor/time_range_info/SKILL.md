@@ -2,6 +2,7 @@
 name: time-range-info
 description: 查询某个时间段的新闻/天气等时效信息；需要先锚定当前时间，再检索外部信息。
 when_to_use: 用户请求中同时出现“相对时间表达”（如昨天/今天/明天、最近N天、上周/本周/下周、过去N天/未来N天）与“时效信息主题”（如新闻、天气、资讯、头条、预报），需要先做时间锚定再检索。
+skill-mode: pyskill
 allowed-tools: ["web_search"]
 ---
 # 时间段信息查询（新闻/天气）

@@ -28,6 +28,7 @@
 - `description`
 - `when_to_use`
 - `allowed-tools`
+- 可选 `skill-mode`（默认 `sync`，可选 `pyskill`）
 
 示例：
 
@@ -36,6 +37,7 @@
 name: time-range-info
 description: 查询时间段新闻/天气，先锚定时间再检索
 when_to_use: 用户请求含相对时间 + 时效主题
+skill-mode: pyskill
 allowed-tools: ["web_search"]
 ---
 ```
@@ -45,6 +47,7 @@ allowed-tools: ["web_search"]
 - 缺任意必填字段：报错
 - skill 名归一化后重复：报错
 - `allowed-tools` 非字符串数组：报错
+- `skill-mode=pyskill` 但 `allowed-tools` 数量不为 1：报错
 - 声明工具但 `scripts/<name>.py|.sh` 不存在：报错
 
 ## 3. skill_tool 约定
