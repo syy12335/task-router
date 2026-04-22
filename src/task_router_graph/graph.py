@@ -74,6 +74,7 @@ class GraphState(TypedDict, total=False):
     retry_reason: str
     retry_reply_text: str
     pre_execute_track: list[dict[str, Any]]
+    recent_workflow_events: list[dict[str, Any]]
 
 
 class TaskRouterGraph:
@@ -265,6 +266,7 @@ class TaskRouterGraph:
             "retry_reason": "",
             "retry_reply_text": "",
             "pre_execute_track": [],
+            "recent_workflow_events": [],
         }
 
     def _collect_workflows_step(self, state: GraphState) -> GraphState:
@@ -463,7 +465,7 @@ class TaskRouterGraph:
         environment = state["environment"]
         current_round_id = int(state.get("round_id", 0))
         if current_round_id <= 0:
-            return {"environment": environment}
+            return {"environment": environment, "recent_workflow_events": []}
 
         self._collect_completed_workflow_jobs(
             environment=environment,
@@ -471,22 +473,48 @@ class TaskRouterGraph:
         )
 
         task = state.get("task")
+        recent_workflow_events = self._extract_recent_workflow_events(
+            environment=environment,
+            round_id=current_round_id,
+        )
         if isinstance(task, Task):
             refreshed = self._refresh_task_from_environment(environment=environment, task=task)
-            return {"environment": environment, "task": refreshed}
-        return {"environment": environment}
+            return {
+                "environment": environment,
+                "task": refreshed,
+                "recent_workflow_events": recent_workflow_events,
+            }
+        return {"environment": environment, "recent_workflow_events": recent_workflow_events}
 
     def _reply_step(self, state: GraphState) -> GraphState:
+        recent_workflow_events = list(state.get("recent_workflow_events", []))
         reply = reply_node(
             llm=self._llm,
             reply_system=self._reply_system,
             environment=state["environment"],
             user_input=state["user_input"],
             task=state["task"],
+            workflow_events=recent_workflow_events,
             invoke_config=self._build_llm_invoke_config(state=state, node="final_reply"),
             context_options=self._context_options,
             environment_context_compress=self._environment_context_compress,
         )
+        patched_reply = self._prepend_workflow_event_notice_if_missing(
+            reply=reply,
+            workflow_events=recent_workflow_events,
+        )
+        if patched_reply != reply:
+            state["environment"].append_last_task_track(
+                track_item={
+                    "agent": "graph",
+                    "event": "reply_completion_patch",
+                    "return": {
+                        "workflow_events_count": len(recent_workflow_events),
+                        "reply": patched_reply,
+                    },
+                }
+            )
+            reply = patched_reply
         return {
             "reply": reply,
         }
@@ -1440,6 +1468,77 @@ class TaskRouterGraph:
         status = str(task.status).strip().lower() or "unknown"
         result = self._short_text(str(task.result).strip(), max_len=160)
         return f"round_id={round_id}, task_id={task_id}, type={task.type}, status={status}, result={result}"
+
+    def _extract_recent_workflow_events(self, *, environment: Environment, round_id: int) -> list[dict[str, Any]]:
+        if round_id <= 0:
+            return []
+
+        events: list[dict[str, Any]] = []
+        for round_item in environment.rounds:
+            if int(round_item.round_id) != int(round_id):
+                continue
+            for task_item in round_item.tasks:
+                if str(task_item.task.type).strip() != "pyskill_task":
+                    continue
+                event_name = ""
+                workflow_type = "pyskill"
+                run_id = ""
+                for step in task_item.track:
+                    if not isinstance(step, dict):
+                        continue
+                    event_value = str(step.get("event", "")).strip().lower()
+                    if event_value not in {"workflow_complete", "workflow_fail"}:
+                        continue
+                    event_name = event_value
+                    workflow_type = str(step.get("workflow_type", "pyskill")).strip() or "pyskill"
+                    run_id = str(step.get("run_id", "")).strip()
+                    break
+                if not event_name:
+                    continue
+                status = str(task_item.task.status).strip().lower() or ("done" if event_name == "workflow_complete" else "failed")
+                result = self._short_text(str(task_item.task.result).strip(), max_len=180)
+                events.append(
+                    {
+                        "workflow_type": workflow_type,
+                        "status": status,
+                        "run_id": run_id,
+                        "pyskill_ref": f"pyskill_task(round_id={round_id}, task_id={task_item.task_id})",
+                        "result": result,
+                    }
+                )
+            break
+        return events[-2:]
+
+    def _prepend_workflow_event_notice_if_missing(
+        self,
+        *,
+        reply: str,
+        workflow_events: list[dict[str, Any]],
+    ) -> str:
+        if not workflow_events:
+            return reply
+
+        primary = workflow_events[0] if isinstance(workflow_events[0], dict) else {}
+        status = str(primary.get("status", "")).strip().lower()
+        pyskill_ref = str(primary.get("pyskill_ref", "")).strip()
+        if not status or not pyskill_ref:
+            return reply
+
+        reply_lower = str(reply).lower()
+        status_hit = status in reply_lower or ("完成" in reply and status == "done") or ("失败" in reply and status == "failed")
+        ref_hit = pyskill_ref in reply
+        if status_hit and ref_hit:
+            return reply
+
+        workflow_type = str(primary.get("workflow_type", "pyskill")).strip() or "pyskill"
+        result = str(primary.get("result", "")).strip()
+        if status == "done":
+            prefix = f"补充进展：{workflow_type} 已完成（{pyskill_ref}）。"
+        else:
+            prefix = f"补充进展：{workflow_type} 执行失败（{pyskill_ref}）。"
+        if result:
+            prefix = f"{prefix} 结果：{result}"
+        return f"{prefix}\n{reply}".strip()
 
     def _is_status_query(self, user_input: str) -> bool:
         query = user_input.strip().lower()

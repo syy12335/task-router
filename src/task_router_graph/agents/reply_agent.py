@@ -29,6 +29,7 @@ class ReplyAgent:
         user_input: str,
         final_task: dict[str, Any],
         environment_view: dict[str, Any],
+        workflow_events: list[dict[str, Any]] | None = None,
         invoke_config: dict[str, Any] | None = None,
         recent_rounds_payload: list[dict[str, Any]] | None = None,
     ) -> str:
@@ -36,6 +37,7 @@ class ReplyAgent:
             user_input=user_input,
             final_task=final_task,
             environment_view=environment_view,
+            workflow_events=workflow_events or [],
         )
         llm = self.llm.bind(
             response_format={
@@ -78,11 +80,13 @@ class ReplyAgent:
         user_input: str,
         final_task: dict[str, Any],
         environment_view: dict[str, Any],
+        workflow_events: list[dict[str, Any]],
     ) -> str:
         rendered = self.system_prompt
         rendered = replace_last(rendered, "{{USER_INPUT}}", user_input)
         rendered = replace_last(rendered, "{{FINAL_TASK_JSON}}", json.dumps(final_task, ensure_ascii=False, indent=2))
         rendered = replace_last(rendered, "{{ENVIRONMENT_JSON}}", json.dumps(environment_view, ensure_ascii=False, indent=2))
+        rendered = replace_last(rendered, "{{WORKFLOW_EVENTS_JSON}}", json.dumps(workflow_events, ensure_ascii=False, indent=2))
         return rendered
 
 def run_reply_task(
@@ -92,6 +96,7 @@ def run_reply_task(
     user_input: str,
     final_task: dict[str, Any],
     environment_view: dict[str, Any],
+    workflow_events: list[dict[str, Any]] | None = None,
     invoke_config: dict[str, Any] | None = None,
     context_options: ContextCompressionOptions | None = None,
     recent_rounds_payload: list[dict[str, Any]] | None = None,
@@ -104,6 +109,7 @@ def run_reply_task(
         user_input=user_input,
         final_task=final_task,
         environment_view=environment_view,
+        workflow_events=workflow_events or [],
         invoke_config=invoke_config,
         recent_rounds_payload=recent_rounds_payload,
     )
