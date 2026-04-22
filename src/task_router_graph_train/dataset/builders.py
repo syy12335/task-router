@@ -53,7 +53,6 @@ TEACHER_SOURCE_MANIFEST_KEYS = (
 )
 TEACHER_SOURCE_ROW_KEYS = (
     "sample_id",
-    "step",
     "terminal",
     "user_input",
     "environment",
@@ -320,7 +319,6 @@ def build_controller_train_records(
                     environment_extras=verifier_extras,
                 ),
                 metadata={
-                    "step": int(row["step"]),
                     "terminal": bool(row["terminal"]),
                 },
             )
@@ -508,9 +506,6 @@ def _validate_controller_teacher_row(
     sample_id = row["sample_id"]
     if not isinstance(sample_id, str) or not sample_id.strip():
         raise ValueError(f"sample_id is required: {sample_source}")
-    step = row["step"]
-    if not isinstance(step, int) or isinstance(step, bool) or step <= 0:
-        raise ValueError(f"step must be a positive integer: {sample_id}")
     terminal = row["terminal"]
     if not isinstance(terminal, bool):
         raise ValueError(f"terminal must be a boolean: {sample_id}")

@@ -14,7 +14,7 @@
 ## 使用顺序
 
 1. 先维护 `teacher_source/`
-   - raw row 只保留：`sample_id / step / terminal / user_input / environment / target_action`
+   - raw row 只保留：`sample_id / terminal / user_input / environment / target_action`
    - `manifest.json` 只保留：`dataset / version / train_size / eval_size / action_space`
 2. 再运行：
 

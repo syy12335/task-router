@@ -47,7 +47,7 @@ def test_build_controller_train_records_from_teacher_source() -> None:
     sample = next(record for record in records if record.sample_id == "teacher_train_009_retry_failed_task_step1")
     assert set(sample.state_input) == {"USER_INPUT", "ENVIRONMENT_JSON", "SKILLS_INDEX"}
     assert "running_refs" not in json.dumps(sample.state_input, ensure_ascii=False)
-    assert sample.metadata == {"step": 1, "terminal": False}
+    assert sample.metadata == {"terminal": False}
     assert sample.gold_output["action_kind"] == "generate_task"
     assert manifest["action_space"] == ["observe", "generate_task"]
 
@@ -67,7 +67,7 @@ def test_build_controller_sft_examples_contains_prompt_sections() -> None:
     target_json = json.loads(example.target_text)
     assert isinstance(target_json, dict)
     assert target_json["action_kind"] == "generate_task"
-    assert example.metadata == {"step": 1, "terminal": False}
+    assert example.metadata == {"terminal": False}
 
 
 def test_build_controller_train_records_rejects_action_kind_outside_manifest(tmp_path: Path) -> None:
@@ -107,14 +107,14 @@ def test_build_controller_train_records_requires_minimal_manifest_contract(tmp_p
         raise AssertionError("expected minimal manifest validation to fail")
 
 
-def test_build_controller_train_records_requires_step_and_terminal_only_contract(tmp_path: Path) -> None:
+def test_build_controller_train_records_requires_terminal_only_contract(tmp_path: Path) -> None:
     fixture_dir = _write_teacher_source_fixture(tmp_path)
     rows = [json.loads(line) for line in (fixture_dir / "teacher_train.jsonl").read_text(encoding="utf-8").splitlines()]
 
-    missing_step_rows = copy.deepcopy(rows)
-    del missing_step_rows[0]["step"]
+    missing_terminal_rows = copy.deepcopy(rows)
+    del missing_terminal_rows[0]["terminal"]
     (fixture_dir / "teacher_train.jsonl").write_text(
-        "\n".join(json.dumps(row, ensure_ascii=False) for row in missing_step_rows) + "\n",
+        "\n".join(json.dumps(row, ensure_ascii=False) for row in missing_terminal_rows) + "\n",
         encoding="utf-8",
     )
     try:
@@ -125,7 +125,7 @@ def test_build_controller_train_records_requires_step_and_terminal_only_contract
     except ValueError as exc:
         assert "missing teacher source row keys" in str(exc)
     else:
-        raise AssertionError("expected missing step validation to fail")
+        raise AssertionError("expected missing terminal validation to fail")
 
     extra_key_rows = copy.deepcopy(rows)
     extra_key_rows[0]["reward"] = 1.0
@@ -162,7 +162,7 @@ def test_tokenize_sft_example_uses_only_target_tokens_for_loss() -> None:
         split="train",
         prompt="USER_INPUT\n继续",
         target_text='{"action_kind": "observe"}',
-        metadata={"step": 1},
+        metadata={"terminal": False},
     )
 
     feature_row = tokenize_sft_example(
@@ -174,7 +174,7 @@ def test_tokenize_sft_example_uses_only_target_tokens_for_loss() -> None:
     prompt_length = len(FakeTokenizer().encode(example.prompt))
     assert feature_row["labels"][:prompt_length] == [-100] * prompt_length
     assert feature_row["labels"][-1] == FakeTokenizer.eos_token_id
-    assert feature_row["metadata"] == {"step": 1}
+    assert feature_row["metadata"] == {"terminal": False}
 
 
 def test_write_controller_sft_assets_smoke(tmp_path: Path) -> None:

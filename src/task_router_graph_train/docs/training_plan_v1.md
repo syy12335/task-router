@@ -67,7 +67,7 @@ v1 只解决一件事：
 
 本期 episode 语义固定为：
 
-- `1-3 step micro-episode`
+- `1-3 round micro-episode`
 
 本期训练输入固定使用：
 
@@ -81,7 +81,6 @@ v1 只解决一件事：
 raw row 只保留当前 controller SFT 需要的字段：
 
 - `sample_id`
-- `step`
 - `terminal`
 - `user_input`
 - `environment`
