@@ -278,14 +278,17 @@ class TaskRouterGraph:
             )
 
         user_input = str(state.get("user_input", "")).strip()
+        status_target_type = self._infer_status_query_task_type(user_input)
         if self._should_shortcut_status_query(
             user_input=user_input,
             environment=environment,
             collected_items=collected_items,
+            target_type=status_target_type,
         ):
             summary_task = self._build_status_summary_task(
                 environment=environment,
                 collected_items=collected_items,
+                target_type=status_target_type,
             )
             return {
                 "environment": environment,
@@ -1312,25 +1315,40 @@ class TaskRouterGraph:
         user_input: str,
         environment: Environment,
         collected_items: list[dict[str, Any]],
+        target_type: str | None = None,
     ) -> bool:
         if not self._is_status_query(user_input):
             return False
 
-        if collected_items:
+        relevant_collected_items = self._filter_collected_items_by_target(
+            collected_items=collected_items,
+            target_type=target_type,
+        )
+        if relevant_collected_items:
             return True
 
-        running_refs = self._build_running_task_refs(environment=environment)
-        return bool(running_refs)
+        running_refs = self._build_running_task_refs(environment=environment, task_type=target_type)
+        if running_refs:
+            return True
+
+        if target_type:
+            return self._find_latest_task_by_type(environment=environment, task_type=target_type) is not None
+        return False
 
     def _build_status_summary_task(
         self,
         *,
         environment: Environment,
         collected_items: list[dict[str, Any]],
+        target_type: str | None = None,
     ) -> Task:
         lines: list[str] = []
 
-        for item in collected_items:
+        relevant_collected_items = self._filter_collected_items_by_target(
+            collected_items=collected_items,
+            target_type=target_type,
+        )
+        for item in relevant_collected_items:
             workflow_type = str(item.get("workflow_type", "workflow")).strip() or "workflow"
             status = str(item.get("status", "")).strip().lower()
             result = self._short_text(str(item.get("result", "")).strip(), max_len=180)
@@ -1340,9 +1358,13 @@ class TaskRouterGraph:
             else:
                 lines.append(f"{workflow_type} 失败：{pyskill_ref}，结果：{result}")
 
-        running_refs = self._build_running_task_refs(environment=environment)
+        running_refs = self._build_running_task_refs(environment=environment, task_type=target_type)
         if running_refs:
             lines.append(f"仍在执行：{'；'.join(running_refs)}")
+        elif target_type:
+            latest_task_ref = self._build_latest_task_status_ref(environment=environment, task_type=target_type)
+            if latest_task_ref:
+                lines.append(f"最近一次{target_type}任务状态：{latest_task_ref}")
 
         if not lines:
             lines.append("当前暂无可汇总的进展信息。")
@@ -1354,10 +1376,12 @@ class TaskRouterGraph:
             result=chr(10).join(lines),
         )
 
-    def _build_running_task_refs(self, *, environment: Environment) -> list[str]:
+    def _build_running_task_refs(self, *, environment: Environment, task_type: str | None = None) -> list[str]:
         refs: list[str] = []
         for round_item in environment.rounds:
             for task_item in round_item.tasks:
+                if task_type and str(task_item.task.type).strip().lower() != task_type:
+                    continue
                 status = str(task_item.task.status).strip().lower()
                 if status != "running":
                     continue
@@ -1369,6 +1393,53 @@ class TaskRouterGraph:
                 else:
                     refs.append(f"round_id={round_item.round_id}, task_id={task_item.task_id}, type={task_item.task.type}")
         return refs[-5:]
+
+    def _infer_status_query_task_type(self, user_input: str) -> str | None:
+        query = user_input.strip().lower()
+        if not query:
+            return None
+
+        if "functest" in query or "功能测试" in query:
+            return "functest"
+        if "accutest" in query or "精度测试" in query or "准确率" in query:
+            return "accutest"
+        if "perftest" in query or "性能测试" in query or "压测" in query:
+            return "perftest"
+        return None
+
+    def _filter_collected_items_by_target(
+        self,
+        *,
+        collected_items: list[dict[str, Any]],
+        target_type: str | None,
+    ) -> list[dict[str, Any]]:
+        if not target_type:
+            return list(collected_items)
+        output: list[dict[str, Any]] = []
+        for item in collected_items:
+            workflow_type = str(item.get("workflow_type", "")).strip().lower()
+            if workflow_type == target_type:
+                output.append(item)
+        return output
+
+    def _find_latest_task_by_type(self, *, environment: Environment, task_type: str) -> tuple[int, int, Task] | None:
+        target_type = str(task_type).strip().lower()
+        if not target_type:
+            return None
+        for round_item in reversed(environment.rounds):
+            for task_item in reversed(round_item.tasks):
+                if str(task_item.task.type).strip().lower() == target_type:
+                    return int(round_item.round_id), int(task_item.task_id), task_item.task
+        return None
+
+    def _build_latest_task_status_ref(self, *, environment: Environment, task_type: str) -> str:
+        latest = self._find_latest_task_by_type(environment=environment, task_type=task_type)
+        if latest is None:
+            return ""
+        round_id, task_id, task = latest
+        status = str(task.status).strip().lower() or "unknown"
+        result = self._short_text(str(task.result).strip(), max_len=160)
+        return f"round_id={round_id}, task_id={task_id}, type={task.type}, status={status}, result={result}"
 
     def _is_status_query(self, user_input: str) -> bool:
         query = user_input.strip().lower()
