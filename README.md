@@ -220,7 +220,7 @@ streamlit run scripts/run/streamlit_app.py
 
 ## 局限性
 
-- token 节省比例依赖任务分布：`functest / accutest / perftest` 占比越高，节省越明显；如果大多数任务都落到 executor，自然收益会变小
+- token 节省比例依赖确定性任务分布：Controller一次分流（这里用`functest / accutest / perftest`占位） 占比越高，节省越明显和executor二次分流（skill和pyskill）；如果大多数任务都落到 executor，自然收益会变小
 - pyskill / sync skill 需要人工维护：确定性场景越多，配套脚本也越需要持续演进
 - 评测集规模还小：当前 `data/eval_samples/k20_manual` 是 20 条手工样本，覆盖 E1~E4 四类错误模式，适合机制验证，不代表全量线上分布
 - 场景绑定较强：目前设计主要服务软件测试工作流，迁移到其他业务需要重新定义 task type、skill 和失败治理口径
