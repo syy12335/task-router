@@ -37,7 +37,7 @@ v1 只解决一件事：
 - `executor_guardrail`
 - 在线 RL
 - reward model
-- PPO / GRPO / 全链路 graph policy 优化
+- PPO / 全链路 graph policy 优化
 
 ## 训练路线
 
@@ -50,7 +50,7 @@ v1 只解决一件事：
 2. `Teacher-RM GRPO`（controller 单步）
    - 对同一 state 采样多个候选动作
    - 用强基模 teacher 返回组内排序（ranking）
-   - 用组内相对优势做策略更新（先做单步 controller 决策）
+   - 用 `verl` 承载组内相对优势更新（先做单步 controller 决策）
 
 未来可升级路线：
 
@@ -132,7 +132,7 @@ controller 训练主奖励改为 teacher 排序信号（ranking reward）。
 
 这里的正式表达固定为：
 
-- 当前实现：`SFT + Teacher-RM GRPO (single-step controller)`
+- 当前实现：`SFT + Teacher-RM GRPO on verl (single-step controller)`
 - 未来可升级：`multi-step / full-trajectory GRPO`
 - 当前文档不会把 `PPO` 写成 v1 的既定工程承诺
 
