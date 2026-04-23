@@ -4,7 +4,6 @@ import argparse
 import json
 from pathlib import Path
 
-from ..runtime_adapter import ASSETS_ROOT
 from ..train import train_controller_sft
 
 
@@ -18,14 +17,29 @@ def parse_args() -> argparse.Namespace:
         help="Explicit LoRA target modules, for example: q_proj v_proj.",
     )
     parser.add_argument(
+        "--asset-manifest",
+        default="",
+        help="Preferred safe input. Path to completed feedback manifest with sft_examples_v1 asset.",
+    )
+    parser.add_argument(
+        "--run-dir",
+        default="",
+        help="Preferred safe input. Run directory containing a completed feedback manifest.",
+    )
+    parser.add_argument(
         "--train-examples",
-        default=str(ASSETS_ROOT / "sft_v1" / "examples" / "controller_sft_train.jsonl"),
-        help="Path to generated controller train examples.",
+        default="",
+        help="Unsafe override path to controller train examples jsonl.",
     )
     parser.add_argument(
         "--eval-examples",
-        default=str(ASSETS_ROOT / "sft_v1" / "examples" / "controller_sft_eval.jsonl"),
-        help="Path to generated controller eval examples.",
+        default="",
+        help="Unsafe override path to controller eval examples jsonl.",
+    )
+    parser.add_argument(
+        "--allow-unsafe-path-input",
+        action="store_true",
+        help="Allow direct --train-examples/--eval-examples paths instead of manifest/run-dir.",
     )
     parser.add_argument(
         "--output-dir",
@@ -49,8 +63,11 @@ def main() -> None:
     report = train_controller_sft(
         model_name_or_path=args.model_name_or_path,
         lora_target_modules=list(args.lora_target_modules),
-        train_examples=Path(args.train_examples).resolve(),
-        eval_examples=Path(args.eval_examples).resolve(),
+        train_examples=Path(args.train_examples).resolve() if args.train_examples.strip() else None,
+        eval_examples=Path(args.eval_examples).resolve() if args.eval_examples.strip() else None,
+        asset_manifest=Path(args.asset_manifest).resolve() if args.asset_manifest.strip() else None,
+        run_dir=Path(args.run_dir).resolve() if args.run_dir.strip() else None,
+        allow_unsafe_path_input=bool(args.allow_unsafe_path_input),
         output_dir=Path(args.output_dir).resolve(),
         num_train_epochs=args.num_train_epochs,
         per_device_train_batch_size=args.per_device_train_batch_size,

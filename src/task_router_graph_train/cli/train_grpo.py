@@ -22,6 +22,31 @@ def parse_args() -> argparse.Namespace:
         help="Directory for RL dataset, verl requests, logs, and reports.",
     )
     parser.add_argument(
+        "--asset-manifest",
+        default="",
+        help="Preferred safe input. Path to completed feedback manifest with controller_training_records_v1 asset.",
+    )
+    parser.add_argument(
+        "--run-dir",
+        default="",
+        help="Preferred safe input. Run directory containing a completed feedback manifest.",
+    )
+    parser.add_argument(
+        "--train-records",
+        default="",
+        help="Unsafe override path to controller train records jsonl.",
+    )
+    parser.add_argument(
+        "--eval-records",
+        default="",
+        help="Unsafe override path to controller eval records jsonl.",
+    )
+    parser.add_argument(
+        "--allow-unsafe-path-input",
+        action="store_true",
+        help="Allow direct --train-records/--eval-records paths instead of manifest/run-dir.",
+    )
+    parser.add_argument(
         "--teacher-mode",
         choices=["online", "oracle", "file"],
         default=None,
@@ -142,6 +167,11 @@ def main() -> None:
     report = train_controller_grpo(
         output_dir=Path(args.output_dir).resolve(),
         config_path=Path(args.config).resolve(),
+        asset_manifest=Path(args.asset_manifest).resolve() if args.asset_manifest.strip() else None,
+        run_dir=Path(args.run_dir).resolve() if args.run_dir.strip() else None,
+        train_records=Path(args.train_records).resolve() if args.train_records.strip() else None,
+        eval_records=Path(args.eval_records).resolve() if args.eval_records.strip() else None,
+        allow_unsafe_path_input=bool(args.allow_unsafe_path_input),
         teacher_mode=args.teacher_mode,
         teacher_base_url=args.teacher_base_url or None,
         teacher_model=args.teacher_model or None,

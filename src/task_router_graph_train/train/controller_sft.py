@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 from typing import Any
 
+from ..artifacts import SFT_EXAMPLES_ARTIFACT_TYPE, load_completed_manifest, resolve_named_asset
 from ..dataset import read_jsonl
 from ..types import SftExample
 
@@ -125,12 +126,43 @@ class ControllerSftDataCollator:
         }
 
 
+def _resolve_sft_input_paths(
+    *,
+    train_examples: Path | None,
+    eval_examples: Path | None,
+    asset_manifest: Path | None,
+    run_dir: Path | None,
+    allow_unsafe_path_input: bool,
+) -> tuple[Path, Path, str]:
+    if asset_manifest is not None or run_dir is not None:
+        manifest = load_completed_manifest(asset_manifest=asset_manifest, run_dir=run_dir)
+        asset = resolve_named_asset(
+            manifest=manifest,
+            asset_name="sft_examples_v1",
+            expected_artifact_type=SFT_EXAMPLES_ARTIFACT_TYPE,
+        )
+        return (
+            Path(str(asset["train_path"])).resolve(),
+            Path(str(asset["eval_path"])).resolve(),
+            str(manifest.get("_manifest_path", "")),
+        )
+
+    if train_examples is None or eval_examples is None:
+        raise ValueError("asset_manifest/run_dir is required unless unsafe train_examples/eval_examples are provided")
+    if not allow_unsafe_path_input:
+        raise ValueError("direct --train-examples/--eval-examples usage requires allow_unsafe_path_input=true")
+    return (Path(train_examples).resolve(), Path(eval_examples).resolve(), "")
+
+
 def train_controller_sft(
     *,
     model_name_or_path: str,
     lora_target_modules: list[str],
-    train_examples: Path,
-    eval_examples: Path,
+    train_examples: Path | None = None,
+    eval_examples: Path | None = None,
+    asset_manifest: Path | None = None,
+    run_dir: Path | None = None,
+    allow_unsafe_path_input: bool = False,
     output_dir: Path,
     num_train_epochs: int = 5,
     per_device_train_batch_size: int = 1,
@@ -152,6 +184,14 @@ def train_controller_sft(
     TrainingArguments = dependencies["TrainingArguments"]
     get_peft_model = dependencies["get_peft_model"]
     set_seed = dependencies["set_seed"]
+
+    resolved_train_examples, resolved_eval_examples, input_manifest_path = _resolve_sft_input_paths(
+        train_examples=train_examples,
+        eval_examples=eval_examples,
+        asset_manifest=asset_manifest,
+        run_dir=run_dir,
+        allow_unsafe_path_input=allow_unsafe_path_input,
+    )
 
     output_dir.mkdir(parents=True, exist_ok=True)
     set_seed(seed)
@@ -180,17 +220,17 @@ def train_controller_sft(
     model = get_peft_model(model, lora_config)
 
     train_dataset = ControllerSftJsonlDataset(
-        example_path=train_examples,
+        example_path=resolved_train_examples,
         tokenizer=tokenizer,
         max_seq_length=max_seq_length,
     )
     eval_dataset = None
     eval_example_rows: list[SftExample] = []
-    if eval_examples.exists():
-        eval_example_rows = load_sft_examples(eval_examples)
+    if resolved_eval_examples.exists():
+        eval_example_rows = load_sft_examples(resolved_eval_examples)
         if eval_example_rows:
             eval_dataset = ControllerSftJsonlDataset(
-                example_path=eval_examples,
+                example_path=resolved_eval_examples,
                 tokenizer=tokenizer,
                 max_seq_length=max_seq_length,
             )
@@ -227,8 +267,10 @@ def train_controller_sft(
     train_config = {
         "model_name_or_path": model_name_or_path,
         "lora_target_modules": list(lora_target_modules),
-        "train_examples": str(train_examples),
-        "eval_examples": str(eval_examples),
+        "train_examples": str(resolved_train_examples),
+        "eval_examples": str(resolved_eval_examples),
+        "input_manifest_path": input_manifest_path,
+        "allow_unsafe_path_input": bool(allow_unsafe_path_input),
         "output_dir": str(output_dir),
         "num_train_epochs": num_train_epochs,
         "per_device_train_batch_size": per_device_train_batch_size,

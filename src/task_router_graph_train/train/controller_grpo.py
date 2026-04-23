@@ -12,14 +12,22 @@ from typing import Any
 
 import yaml
 
+from ..artifacts import (
+    CONTROLLER_TRAINING_RECORDS_ARTIFACT_TYPE,
+    VERL_RL_DATASET_ARTIFACT_TYPE,
+    load_completed_manifest,
+    resolve_named_asset,
+)
 from ..dataset import build_controller_train_records, render_controller_prompt, render_controller_target_text, write_jsonl
+from ..dataset.io import read_jsonl
 from ..runtime_adapter import CONFIGS_ROOT, REPO_ROOT
-from ..types import TrainingRecord
+from ..types import TrainingRecord, VerifierSidecar
 from .controller_grpo_teacher import (
     DEFAULT_TEACHER_DATA_SOURCE,
     judge_controller_group,
     normalize_teacher_result,
     resolve_teacher_config,
+    sanitize_teacher_config_for_report,
 )
 
 ALLOWED_ACTION_KINDS = {"observe", "generate_task"}
@@ -177,6 +185,11 @@ def train_controller_grpo(
     *,
     output_dir: Path,
     config_path: Path | None = None,
+    asset_manifest: Path | None = None,
+    run_dir: Path | None = None,
+    train_records: Path | None = None,
+    eval_records: Path | None = None,
+    allow_unsafe_path_input: bool = False,
     teacher_mode: str | None = None,
     teacher_base_url: str | None = None,
     teacher_model: str | None = None,
@@ -235,7 +248,7 @@ def train_controller_grpo(
         lora_dropout=lora_dropout,
         seed=seed,
     )
-    teacher_config = resolve_teacher_config(effective_config)
+    teacher_config = resolve_teacher_config(effective_config, role="reward_judge")
 
     if str(teacher_config.get("mode", "")).strip().lower() != "online":
         raise ValueError("default training path only supports teacher.mode=online; use debug helpers for oracle/file")
@@ -248,23 +261,39 @@ def train_controller_grpo(
     if not model_path:
         raise ValueError("model.path or --model-name-or-path is required")
 
-    records, manifest = build_controller_train_records(
+    input_resolution = _resolve_grpo_input_artifacts(
+        asset_manifest=asset_manifest,
+        run_dir=run_dir,
+        train_records=train_records,
+        eval_records=eval_records,
+        allow_unsafe_path_input=allow_unsafe_path_input,
         teacher_source_dir=teacher_source_dir,
-        workspace_root=repo_root,
+        repo_root=repo_root,
     )
-    controller_records = [record for record in records if record.role == "controller"]
+    manifest = copy.deepcopy(input_resolution["record_manifest"])
+    controller_records = list(input_resolution["controller_records"])
 
-    dataset_paths = _write_verl_rl_dataset(
-        records=controller_records,
-        output_dir=output_dir,
-        num_candidates=int(effective_config["rollout"]["num_candidates"]),
-        teacher_context={
-            "mode": str(teacher_config["mode"]),
-            "model": str(teacher_config.get("model", "")),
-            "rubric_id": str(teacher_config.get("rubric_id", "")),
-            "base_url": str(teacher_config.get("base_url", "")),
-        },
-    )
+    if input_resolution["dataset_mode"] == VERL_RL_DATASET_ARTIFACT_TYPE:
+        dataset_paths = {
+            "train_path": Path(str(input_resolution["train_dataset_path"])).resolve(),
+            "eval_path": Path(str(input_resolution["eval_dataset_path"])).resolve(),
+            "counts_by_split": _count_rl_dataset_rows(
+                train_path=Path(str(input_resolution["train_dataset_path"])).resolve(),
+                eval_path=Path(str(input_resolution["eval_dataset_path"])).resolve(),
+            ),
+        }
+    else:
+        dataset_paths = _write_verl_rl_dataset(
+            records=controller_records,
+            output_dir=output_dir,
+            num_candidates=int(effective_config["rollout"]["num_candidates"]),
+            teacher_context={
+                "mode": str(teacher_config["mode"]),
+                "model": str(teacher_config.get("model", "")),
+                "rubric_id": str(teacher_config.get("rubric_id", "")),
+                "base_url": str(teacher_config.get("base_url", "")),
+            },
+        )
 
     runtime_config_payload = {
         "seed": int(effective_config.get("seed", seed)),
@@ -333,14 +362,20 @@ def train_controller_grpo(
         "teacher_backend": str(teacher_config["mode"]),
         "teacher_mode": str(teacher_config["mode"]),
         "teacher_model": str(teacher_config.get("model", "")),
+        "teacher_config": sanitize_teacher_config_for_report(teacher_config),
         "update_backend": str(effective_config["update"]["backend"]),
         "train_dataset_path": str(dataset_paths["train_path"]),
         "eval_dataset_path": str(dataset_paths["eval_path"]),
         "verl_training_request_path": str(request_path),
         "verl_hydra_overrides_path": str(overrides_path),
-        "group_count": len(controller_records),
+        "group_count": len(controller_records)
+        if controller_records
+        else int(dataset_paths["counts_by_split"]["train"]) + int(dataset_paths["counts_by_split"]["eval"]),
         "counts_by_split": dict(dataset_paths["counts_by_split"]),
         "record_manifest": manifest,
+        "input_artifact_type": str(input_resolution["dataset_mode"]),
+        "input_manifest_path": str(input_resolution.get("input_manifest_path", "")),
+        "unsafe_path_input": bool(input_resolution.get("unsafe_path_input", False)),
         "num_candidates": int(effective_config["rollout"]["num_candidates"]),
         "seed": int(effective_config.get("seed", seed)),
         "compatibility_warnings": compatibility_warnings,
@@ -406,22 +441,31 @@ def _apply_training_overrides(
     config["seed"] = int(seed)
 
     teacher_cfg = dict(config.get("teacher", {}))
+    reward_cfg = dict(teacher_cfg.get("reward_judge", {}))
     if teacher_mode is not None:
+        reward_cfg["mode"] = teacher_mode
         teacher_cfg["mode"] = teacher_mode
     if teacher_base_url is not None and teacher_base_url.strip():
+        reward_cfg["base_url"] = teacher_base_url.strip()
         teacher_cfg["base_url"] = teacher_base_url.strip()
     if teacher_model is not None and teacher_model.strip():
+        reward_cfg["model"] = teacher_model.strip()
         teacher_cfg["model"] = teacher_model.strip()
     if teacher_api_key_env is not None and teacher_api_key_env.strip():
+        reward_cfg["api_key_env"] = teacher_api_key_env.strip()
         teacher_cfg["api_key_env"] = teacher_api_key_env.strip()
     if teacher_timeout_sec is not None:
+        reward_cfg["timeout_sec"] = float(teacher_timeout_sec)
         teacher_cfg["timeout_sec"] = float(teacher_timeout_sec)
     if teacher_rubric_id is not None and teacher_rubric_id.strip():
-        teacher_cfg["rubric_id"] = teacher_rubric_id.strip()
+        reward_cfg["rubric_id"] = teacher_rubric_id.strip()
     if teacher_max_batch_size is not None:
+        reward_cfg["max_batch_size"] = int(teacher_max_batch_size)
         teacher_cfg["max_batch_size"] = int(teacher_max_batch_size)
     if teacher_rankings_path is not None:
+        reward_cfg["ranking_path"] = str(teacher_rankings_path)
         teacher_cfg["ranking_path"] = str(teacher_rankings_path)
+    teacher_cfg["reward_judge"] = reward_cfg
     config["teacher"] = teacher_cfg
 
     rollout_cfg = dict(config.get("rollout", {}))
@@ -468,6 +512,166 @@ def _load_training_config(config_path: Path) -> dict[str, Any]:
     return copy.deepcopy(payload)
 
 
+def _resolve_grpo_input_artifacts(
+    *,
+    asset_manifest: Path | None,
+    run_dir: Path | None,
+    train_records: Path | None,
+    eval_records: Path | None,
+    allow_unsafe_path_input: bool,
+    teacher_source_dir: Path | None,
+    repo_root: Path,
+) -> dict[str, Any]:
+    if asset_manifest is not None or run_dir is not None:
+        manifest = load_completed_manifest(asset_manifest=asset_manifest, run_dir=run_dir)
+        input_manifest_path = str(manifest.get("_manifest_path", ""))
+        assets = manifest.get("assets", {})
+        if isinstance(assets, dict) and "controller_training_records_v1" in assets:
+            asset = resolve_named_asset(
+                manifest=manifest,
+                asset_name="controller_training_records_v1",
+                expected_artifact_type=CONTROLLER_TRAINING_RECORDS_ARTIFACT_TYPE,
+            )
+            controller_records = _load_training_records_from_jsonl(
+                train_path=Path(str(asset["train_path"])).resolve(),
+                eval_path=Path(str(asset["eval_path"])).resolve(),
+            )
+            return {
+                "dataset_mode": CONTROLLER_TRAINING_RECORDS_ARTIFACT_TYPE,
+                "controller_records": controller_records,
+                "record_manifest": manifest,
+                "input_manifest_path": input_manifest_path,
+                "unsafe_path_input": False,
+            }
+        asset = resolve_named_asset(
+            manifest=manifest,
+            asset_name="verl_rl_dataset_v1",
+            expected_artifact_type=VERL_RL_DATASET_ARTIFACT_TYPE,
+        )
+        _validate_verl_rl_dataset_rows(
+            train_path=Path(str(asset["train_path"])).resolve(),
+            eval_path=Path(str(asset["eval_path"])).resolve(),
+        )
+        return {
+            "dataset_mode": VERL_RL_DATASET_ARTIFACT_TYPE,
+            "controller_records": [],
+            "train_dataset_path": str(asset["train_path"]),
+            "eval_dataset_path": str(asset["eval_path"]),
+            "record_manifest": manifest,
+            "input_manifest_path": input_manifest_path,
+            "unsafe_path_input": False,
+        }
+
+    if train_records is not None or eval_records is not None:
+        if not allow_unsafe_path_input:
+            raise ValueError("direct --train-records/--eval-records usage requires allow_unsafe_path_input=true")
+        if train_records is None or eval_records is None:
+            raise ValueError("both train_records and eval_records are required together")
+        controller_records = _load_training_records_from_jsonl(
+            train_path=Path(train_records).resolve(),
+            eval_path=Path(eval_records).resolve(),
+        )
+        return {
+            "dataset_mode": CONTROLLER_TRAINING_RECORDS_ARTIFACT_TYPE,
+            "controller_records": controller_records,
+            "record_manifest": {
+                "artifact_type": CONTROLLER_TRAINING_RECORDS_ARTIFACT_TYPE,
+                "status": "unsafe_path_input",
+                "train_path": str(Path(train_records).resolve()),
+                "eval_path": str(Path(eval_records).resolve()),
+            },
+            "input_manifest_path": "",
+            "unsafe_path_input": True,
+        }
+
+    records, manifest = build_controller_train_records(
+        teacher_source_dir=teacher_source_dir,
+        workspace_root=repo_root,
+    )
+    controller_records = [record for record in records if record.role == "controller"]
+    return {
+        "dataset_mode": CONTROLLER_TRAINING_RECORDS_ARTIFACT_TYPE,
+        "controller_records": controller_records,
+        "record_manifest": manifest,
+        "input_manifest_path": "",
+        "unsafe_path_input": False,
+    }
+
+
+def _load_training_records_from_jsonl(*, train_path: Path, eval_path: Path) -> list[TrainingRecord]:
+    rows: list[TrainingRecord] = []
+    for split, path in (("train", train_path), ("eval", eval_path)):
+        for row in read_jsonl(path):
+            rows.append(_training_record_from_row(row=row, source_path=path, expected_split=split))
+    return rows
+
+
+def _training_record_from_row(*, row: dict[str, Any], source_path: Path, expected_split: str) -> TrainingRecord:
+    role = str(row.get("role", "")).strip()
+    split = str(row.get("split", "")).strip()
+    sample_id = str(row.get("sample_id", "")).strip()
+    state_input = row.get("state_input")
+    if role == "controller_regression" or role == "graph_eval":
+        raise ValueError(f"{source_path} contains non-training role: {role}")
+    if role != "controller":
+        raise ValueError(f"{source_path} role must be controller: {sample_id or '<missing>'}")
+    if split != expected_split:
+        raise ValueError(f"{source_path} split must be {expected_split}: {sample_id or '<missing>'}")
+    if not sample_id:
+        raise ValueError(f"{source_path} row missing sample_id")
+    if not isinstance(state_input, dict):
+        raise ValueError(f"{source_path} state_input must be object: {sample_id}")
+    return TrainingRecord(
+        sample_id=sample_id,
+        role=role,
+        state_input=copy.deepcopy(state_input),
+        gold_output=copy.deepcopy(row.get("gold_output", {})) if isinstance(row.get("gold_output", {}), dict) else {},
+        verifier_sidecar=_coerce_verifier_sidecar(row.get("verifier_sidecar", {})),
+        reward_spec_id=str(row.get("reward_spec_id", "")),
+        split=split,
+        metadata=copy.deepcopy(row.get("metadata", {})) if isinstance(row.get("metadata", {}), dict) else {},
+    )
+
+
+def _coerce_verifier_sidecar(payload: Any) -> VerifierSidecar:
+    if not isinstance(payload, dict):
+        payload = {}
+    return VerifierSidecar(
+        environment_snapshot_id=str(payload.get("environment_snapshot_id", "")).strip(),
+        annotation=str(payload.get("annotation", "")).strip(),
+        task_focus=str(payload.get("task_focus", "")).strip(),
+        leaderboards=list(payload.get("leaderboards", [])) if isinstance(payload.get("leaderboards", []), list) else [],
+        environment_extras=copy.deepcopy(payload.get("environment_extras", {}))
+        if isinstance(payload.get("environment_extras", {}), dict)
+        else {},
+        runtime_shape_preview=copy.deepcopy(payload.get("runtime_shape_preview", {}))
+        if isinstance(payload.get("runtime_shape_preview", {}), dict)
+        else {},
+    )
+
+
+def _validate_verl_rl_dataset_rows(*, train_path: Path, eval_path: Path) -> None:
+    for split, path in (("train", train_path), ("eval", eval_path)):
+        for row in read_jsonl(path):
+            prompt = row.get("prompt")
+            if not isinstance(prompt, list) or not prompt:
+                raise ValueError(f"{path} missing prompt for {split} row")
+            extra_info = row.get("extra_info", {})
+            if not isinstance(extra_info, dict):
+                raise ValueError(f"{path} extra_info must be object")
+            if str(extra_info.get("split", "")).strip() != split:
+                raise ValueError(f"{path} extra_info.split must be {split}")
+            if str(extra_info.get("sample_id", "")).strip() == "":
+                raise ValueError(f"{path} extra_info.sample_id is required")
+
+
+def _count_rl_dataset_rows(*, train_path: Path, eval_path: Path) -> dict[str, int]:
+    return {
+        "train": len(read_jsonl(train_path)),
+        "eval": len(read_jsonl(eval_path)),
+    }
+
+
 def _write_verl_rl_dataset(
     *,
     records: list[TrainingRecord],
@@ -505,9 +709,11 @@ def _write_verl_rl_dataset(
         if record.split == "eval":
             eval_rows.append(row)
             counts_by_split["eval"] += 1
-        else:
+        elif record.split == "train":
             train_rows.append(row)
             counts_by_split["train"] += 1
+        else:
+            raise ValueError(f"unsupported controller training split: {record.split} ({record.sample_id})")
 
     train_path = output_dir / "verl_rl_train.jsonl"
     eval_path = output_dir / "verl_rl_eval.jsonl"
