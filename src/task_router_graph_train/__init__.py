@@ -24,7 +24,8 @@ from .dataset import (
     write_controller_sft_assets,
     write_jsonl,
 )
-from .eval import evaluate_prediction_records
+from .eval import evaluate_controller_regression, evaluate_prediction_records
+from .feedback import build_feedback_assets, harvest_failed_badcases
 from .reward_specs import REWARD_SPECS
 from .runtime_adapter import (
     ASSETS_ROOT,
@@ -64,6 +65,7 @@ __all__ = [
     "ROLE_GRAPH_EVAL",
     "ROLE_REPLY",
     "build_grpo_rollout_groups",
+    "build_feedback_assets",
     "build_controller_state_input",
     "build_controller_sft_examples",
     "build_controller_train_records",
@@ -71,7 +73,9 @@ __all__ = [
     "build_reply_state_input",
     "build_sft_token_labels",
     "build_teacher_rankings",
+    "evaluate_controller_regression",
     "evaluate_prediction_records",
+    "harvest_failed_badcases",
     "load_eval_sample_triplets",
     "load_sft_examples",
     "read_jsonl",
