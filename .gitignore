@@ -22,3 +22,6 @@ hf-cache
 model-cache
 *.log
 .pyskill_runtime/
+
+# Private local docs
+.private/

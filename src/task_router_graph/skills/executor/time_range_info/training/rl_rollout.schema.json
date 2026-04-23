@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "time_range_info_rl_rollout",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["query", "rollout_id", "steps", "terminal_reason"],
+  "properties": {
+    "query": {"type": "string"},
+    "rollout_id": {"type": "string"},
+    "steps": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["state_snapshot", "action", "reward_signals"],
+        "properties": {
+          "state_snapshot": {"type": "object"},
+          "action": {
+            "type": "string",
+            "enum": ["search", "refine", "verify", "answer", "stop"]
+          },
+          "reward_signals": {
+            "type": "object",
+            "required": ["answer_track", "refine_track", "format_track"],
+            "properties": {
+              "answer_track": {"type": "object"},
+              "refine_track": {"type": "object"},
+              "format_track": {"type": "object"}
+            }
+          }
+        }
+      }
+    },
+    "terminal_reason": {
+      "type": "string",
+      "enum": ["sufficient", "insufficient_not_found", "max_iterations", "runtime_failure"]
+    },
+    "metadata": {"type": "object"}
+  }
+}

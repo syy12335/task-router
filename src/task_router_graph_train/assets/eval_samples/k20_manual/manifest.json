@@ -1,0 +1,48 @@
+{
+  "dataset": "task_router_graph_train_eval_samples_k20_manual",
+  "version": "v1.1.0",
+  "mode": "module_local_eval_source",
+  "sample_count": 20,
+  "authoring": "manual",
+  "dataset_role": "eval_source_only",
+  "schema": {
+    "required_fields": [
+      "sample_id",
+      "scenario_id",
+      "seed",
+      "environment_snapshot_id",
+      "error_code",
+      "expected_action"
+    ],
+    "extended_fields": [
+      "run_id",
+      "round_id",
+      "task_id",
+      "decision_step",
+      "gold_outcome"
+    ]
+  },
+  "error_code_coverage": {
+    "E1_ENV_LOOP_READ": 4,
+    "E2_STATUS_REPLY_MISMATCH": 5,
+    "E3_ENV_FACT_IGNORED": 7,
+    "E4_STEP_EXHAUST_NO_TOOL": 4
+  },
+  "quality_gate": {
+    "parseable_jsonl": true,
+    "unique_sample_id": true,
+    "non_repeated_semantics": true,
+    "snapshot_shape_diversity_expected": true
+  },
+  "sanitization": {
+    "formal_environment_only": true,
+    "verifier_sidecar_enabled": true,
+    "generated_holdout_path": "src/task_router_graph_train/assets/rl_v1/holdout/k20_manual_records.jsonl"
+  },
+  "notes": [
+    "This dataset is manually authored and does not enforce mock/real distinction.",
+    "snapshots.jsonl keeps only the formal environment schema; verifier-only hints moved to top-level verifier_sidecar.",
+    "Use src/task_router_graph_train/assets/rl_v1/holdout for formal RL v1 evaluation."
+  ],
+  "generated_at": "2026-04-16T00:00:00+00:00"
+}

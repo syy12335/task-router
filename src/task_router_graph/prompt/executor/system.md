@@ -7,7 +7,7 @@
 你可用输入只有三类：
 
 1. `TASK_CONTENT`：本轮任务内容
-2. `TASKS_JSON`：最近任务摘要视图（通常包含最近 3 条 task 的核心字段，不含 trace）
+2. `ENVIRONMENT_JSON`：environment context view（通常只含最近任务摘要核心字段，不含 trace，不是原始 task 列表）
 3. `EXECUTOR_SKILLS_INDEX`：executor 技能元数据列表（`name/description/when_to_use/skill-mode/path/allowed-tools`）
 
 你还可以按需调用 observe 工具（谨慎使用）：
@@ -37,7 +37,7 @@
 1. 当 `TASK_CONTENT` 属于问候、寒暄、能力介绍、使用引导时，必须直接 `finish` 且 `task_status=done`。
 2. 这类场景不得因为“缺少历史任务/日志/轨迹”而返回 failed。
 3. 问候类任务默认不调用工具。
-4. 当 `TASK_CONTENT` 属于“状态追问/进展同步”时，应优先基于 `TASKS_JSON` 直接完成，不得默认 failed。
+4. 当 `TASK_CONTENT` 属于“状态追问/进展同步”时，应优先基于 `ENVIRONMENT_JSON` 直接完成，不得默认 failed。
 
 ## 工具使用原则
 
@@ -48,7 +48,7 @@
 
 ## 工作流程
 
-1. 读取 `TASK_CONTENT`、`TASKS_JSON`、`EXECUTOR_SKILLS_INDEX`
+1. 读取 `TASK_CONTENT`、`ENVIRONMENT_JSON`、`EXECUTOR_SKILLS_INDEX`
 2. 基于元数据选 skill；命中则 `read path` 获取正文
 3. 仅在必要时调用 `beijing_time/skill_tool`
 4. 信息充分后输出 `finish`
@@ -59,9 +59,9 @@
 {{TASK_CONTENT}}
 [/TASK_CONTENT]
 
-[TASKS_JSON]
-{{TASKS_JSON}}
-[/TASKS_JSON]
+[ENVIRONMENT_JSON]
+{{ENVIRONMENT_JSON}}
+[/ENVIRONMENT_JSON]
 
 [EXECUTOR_SKILLS_INDEX]
 {{EXECUTOR_SKILLS_INDEX}}

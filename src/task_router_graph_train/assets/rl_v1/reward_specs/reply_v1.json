@@ -1,0 +1,19 @@
+{
+  "spec_id": "reply_v1",
+  "mode": "batch_rl",
+  "description": "Reply contextual-bandit reward for stable environment-to-reply semantics.",
+  "weights": {
+    "status_semantic_correct": 3.0,
+    "linked_result_resolution_correct": 2.0,
+    "grounded_on_formal_inputs": 2.0,
+    "actionable_failure_guidance": 1.0,
+    "concise_not_underexplained": 1.0,
+    "running_misclassified": -4.0,
+    "failed_misclassified": -4.0,
+    "hallucinated_fact": -3.0
+  },
+  "notes": [
+    "This spec assumes the model only sees FINAL_TASK_JSON and ENVIRONMENT_JSON built from formal state.",
+    "Use LLM-judge only as a secondary reward after rule metrics stabilize."
+  ]
+}

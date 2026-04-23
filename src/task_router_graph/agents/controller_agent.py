@@ -328,7 +328,7 @@ class ControllerAgent:
     ) -> str:
         rendered = self.system_prompt
         rendered = replace_last(rendered, "{{USER_INPUT}}", user_input)
-        rendered = replace_last(rendered, "{{TASKS_JSON}}", json.dumps(tasks, ensure_ascii=False, indent=2))
+        rendered = replace_last(rendered, "{{ENVIRONMENT_JSON}}", json.dumps(tasks, ensure_ascii=False, indent=2))
         rendered = replace_last(rendered, "{{SKILLS_INDEX}}", skills_index)
         return rendered
 

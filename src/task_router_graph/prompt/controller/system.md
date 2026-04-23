@@ -8,7 +8,7 @@
 仅可使用：
 
 1. `USER_INPUT`
-2. `TASKS_JSON`
+2. `ENVIRONMENT_JSON`（environment context view，不是原始 task 列表）
 3. `SKILLS_INDEX`
 
 ## 动作
@@ -55,7 +55,7 @@
 
 ## 失败重试
 
-1. 优先使用 `TASKS_JSON` 里已有失败事实。
+1. 优先使用 `ENVIRONMENT_JSON` 里已有失败事实。
 2. 必要时调用 `previous_failed_track {}` 补全轨迹。
 3. 只复用已存在失败事实，不新增猜测原因。
 
@@ -106,9 +106,9 @@
 {{USER_INPUT}}
 [/USER_INPUT]
 
-[TASKS_JSON]
-{{TASKS_JSON}}
-[/TASKS_JSON]
+[ENVIRONMENT_JSON]
+{{ENVIRONMENT_JSON}}
+[/ENVIRONMENT_JSON]
 
 [SKILLS_INDEX]
 {{SKILLS_INDEX}}

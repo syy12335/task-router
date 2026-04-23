@@ -282,7 +282,7 @@ class ExecutorAgent:
     ) -> str:
         rendered = self.system_prompt
         rendered = replace_last(rendered, "{{TASK_CONTENT}}", task_content)
-        rendered = replace_last(rendered, "{{TASKS_JSON}}", json.dumps(tasks, ensure_ascii=False, indent=2))
+        rendered = replace_last(rendered, "{{ENVIRONMENT_JSON}}", json.dumps(tasks, ensure_ascii=False, indent=2))
         rendered = replace_last(rendered, "{{EXECUTOR_SKILLS_INDEX}}", executor_skills_index)
         return rendered
 

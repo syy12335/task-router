@@ -1,0 +1,100 @@
+teacher:
+  mode: online
+  base_url: https://dashscope.aliyuncs.com/compatible-mode/v1
+  model: qwen-flash
+  api_key_env: API_KEY_Qwen
+  timeout_sec: 60
+  max_batch_size: 4
+  max_tokens: 2048
+  temperature: 0.0
+  allow_missing_api_key: false
+  ranking_path: ""
+
+  reward_judge: &reward_judge
+    mode: online
+    base_url: https://dashscope.aliyuncs.com/compatible-mode/v1
+    model: qwen-flash
+    api_key_env: API_KEY_Qwen
+    timeout_sec: 60
+    rubric_id: controller_grpo_pairwise_v1
+    max_batch_size: 4
+    max_tokens: 2048
+    temperature: 0.0
+    allow_missing_api_key: false
+    ranking_path: ""
+
+  reference_generator:
+    <<: *reward_judge
+    rubric_id: controller_reference_generator_v1
+
+  regression_judge:
+    <<: *reward_judge
+    rubric_id: controller_regression_judge_v1
+
+rollout:
+  backend: sglang
+  num_candidates: 4
+  temperature: 0.8
+  top_p: 0.95
+  top_k: -1
+  max_tokens: 512
+  gpu_memory_utilization: 0.5
+  tensor_model_parallel_size: 1
+  data_parallel_size: 1
+  max_num_batched_tokens: 8192
+  max_num_seqs: 256
+  load_format: hf
+
+update:
+  backend: verl
+  adv_estimator: grpo
+  total_epochs: 1
+  train_batch_size: 8
+  val_batch_size: 4
+  learning_rate: 2.0e-4
+  per_device_train_batch_size: 1
+  gradient_accumulation_steps: 4
+  n_gpus_per_node: 1
+  nnodes: 1
+  logger:
+    - console
+  val_before_train: false
+  test_freq: -1
+  save_freq: -1
+  resume_mode: disable
+  use_kl_loss: true
+  norm_adv_by_std_in_grpo: true
+
+model:
+  path: ""
+  trust_remote_code: false
+  lora_rank: 8
+  lora_alpha: 16
+  lora_dropout: 0.05
+  target_modules:
+    - q_proj
+    - v_proj
+
+data:
+  max_prompt_length: 2048
+  max_response_length: 512
+  dataloader_num_workers: 0
+  prompt_key: prompt
+  reward_fn_key: data_source
+  return_raw_chat: true
+  filter_overlong_prompts: false
+
+feedback:
+  auto_sft_confidence_threshold: 0.85
+  regression_reserve_ratio: 0.2
+  regression_reserve_min: 1
+  eval_ratio: 0.2
+
+debug:
+  allow_gold_mutate: false
+  allow_oracle_file_teacher: false
+  rollout_mode: debug_gold_mutate
+
+audit:
+  export_rollout_preview: false
+  export_teacher_preview: false

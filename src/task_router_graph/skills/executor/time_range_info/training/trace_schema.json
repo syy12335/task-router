@@ -1,0 +1,83 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "time_range_info_trace",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "search_trace",
+    "refine_trace",
+    "verify_trace",
+    "answer_trace"
+  ],
+  "properties": {
+    "search_trace": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["iteration", "query", "bootstrap_docs", "candidate_docs", "stats"],
+        "properties": {
+          "iteration": {"type": "integer", "minimum": 1},
+          "query": {"type": "string"},
+          "bootstrap_docs": {"type": "array"},
+          "candidate_docs": {"type": "array"},
+          "stats": {"type": "object"}
+        }
+      }
+    },
+    "refine_trace": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["iteration", "query", "candidate_docs", "refined_evidence", "refine_summary", "dropped_noise", "stats"],
+        "properties": {
+          "iteration": {"type": "integer", "minimum": 1},
+          "query": {"type": "string"},
+          "candidate_docs": {"type": "array"},
+          "refined_evidence": {"type": "array"},
+          "refine_summary": {"type": "string"},
+          "dropped_noise": {"type": "array"},
+          "stats": {"type": "object"}
+        }
+      }
+    },
+    "verify_trace": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "iteration",
+          "query",
+          "verify_state",
+          "verify_reason",
+          "continue_search",
+          "info_gain_overlap",
+          "heuristic",
+          "reward_interface"
+        ],
+        "properties": {
+          "iteration": {"type": "integer", "minimum": 1},
+          "query": {"type": "string"},
+          "verify_state": {
+            "type": "string",
+            "enum": ["sufficient", "insufficient_continue", "insufficient_not_found"]
+          },
+          "verify_reason": {"type": "string"},
+          "continue_search": {"type": "boolean"},
+          "info_gain_overlap": {"type": "number", "minimum": 0, "maximum": 1},
+          "heuristic": {"type": "object"},
+          "reward_interface": {"type": "object"}
+        }
+      }
+    },
+    "answer_trace": {
+      "type": "object",
+      "required": ["status", "query", "verify_state", "evidence_used"],
+      "properties": {
+        "status": {"type": "string", "enum": ["generated", "skipped"]},
+        "query": {"type": "string"},
+        "verify_state": {"type": "string"},
+        "evidence_used": {"type": "array"}
+      }
+    }
+  }
+}

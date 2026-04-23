@@ -1,0 +1,14 @@
+{
+  "spec_id": "executor_guardrail_v1",
+  "mode": "eval_only",
+  "description": "Executor-only guardrail checks that should remain outside RL v1.",
+  "weights": {
+    "skill_activation_order_ok": 2.0,
+    "read_loop_broken": 2.0,
+    "required_tool_called": 2.0,
+    "step_exhausted_without_tool": -3.0
+  },
+  "notes": [
+    "This spec is intentionally eval-only until controller/reply RL is stable."
+  ]
+}

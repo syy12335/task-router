@@ -32,7 +32,7 @@ GRAPH_CONFIG_RELATIVE_PATH = "configs/graph.yaml"
 
 POLICY_SCHEMA: dict[str, Any] = {
     "type": "object",
-    "required": ["runtime", "retrieval", "grading", "prompts", "response"],
+    "required": ["runtime", "retrieval", "verification", "prompts", "response"],
     "additionalProperties": False,
     "properties": {
         "runtime": {
@@ -66,7 +66,7 @@ POLICY_SCHEMA: dict[str, Any] = {
                 "hybrid_local_limit": {"type": "integer", "minimum": 1, "maximum": 20},
             },
         },
-        "grading": {
+        "verification": {
             "type": "object",
             "required": [
                 "llm_min_confidence",
@@ -84,10 +84,11 @@ POLICY_SCHEMA: dict[str, Any] = {
         },
         "prompts": {
             "type": "object",
-            "required": ["grading_system", "rewrite_system", "answer_system"],
+            "required": ["refine_system", "verify_system", "rewrite_system", "answer_system"],
             "additionalProperties": False,
             "properties": {
-                "grading_system": {"type": "string", "minLength": 1},
+                "refine_system": {"type": "string", "minLength": 1},
+                "verify_system": {"type": "string", "minLength": 1},
                 "rewrite_system": {"type": "string", "minLength": 1},
                 "answer_system": {"type": "string", "minLength": 1},
             },
@@ -115,13 +116,20 @@ class FlowState(TypedDict, total=False):
     query_history: list[str]
     bootstrap_docs: list[dict[str, Any]]
     semantic_chunks: list[dict[str, Any]]
-    hybrid_docs: list[dict[str, Any]]
-    selected_docs: list[dict[str, Any]]
-    grade_decision: str
-    grade_reason: str
-    grade_confidence: float
-    heuristic: dict[str, Any]
+    candidate_docs: list[dict[str, Any]]
+    refined_evidence: list[dict[str, Any]]
+    refine_summary: str
+    dropped_noise: list[dict[str, Any]]
+    verify_state: str
+    verify_reason: str
+    verify_confidence: float
+    continue_search: bool
     warnings: list[str]
+    search_trace: list[dict[str, Any]]
+    refine_trace: list[dict[str, Any]]
+    verify_trace: list[dict[str, Any]]
+    answer_trace: dict[str, Any]
+    refine_history: list[str]
     task_status: str
     task_result: str
 
@@ -142,7 +150,8 @@ class RetrievalPolicy:
     min_docs_for_answer: int
     min_dedup_ratio: float
     min_avg_snippet_chars: int
-    grading_system: str
+    refine_system: str
+    verify_system: str
     rewrite_system: str
     answer_system: str
     response_agent_mode: str
@@ -213,7 +222,7 @@ def _load_retrieval_policy() -> RetrievalPolicy:
 
     runtime_cfg = payload["runtime"]
     retrieval_cfg = payload["retrieval"]
-    grading_cfg = payload["grading"]
+    verification_cfg = payload["verification"]
     prompts_cfg = payload["prompts"]
     response_cfg = payload["response"]
 
@@ -228,11 +237,12 @@ def _load_retrieval_policy() -> RetrievalPolicy:
         bootstrap_web_limit=int(retrieval_cfg["bootstrap_web_limit"]),
         hybrid_web_limit=int(retrieval_cfg["hybrid_web_limit"]),
         hybrid_local_limit=int(retrieval_cfg["hybrid_local_limit"]),
-        llm_min_confidence=float(grading_cfg["llm_min_confidence"]),
-        min_docs_for_answer=int(grading_cfg["min_docs_for_answer"]),
-        min_dedup_ratio=float(grading_cfg["min_dedup_ratio"]),
-        min_avg_snippet_chars=int(grading_cfg["min_avg_snippet_chars"]),
-        grading_system=str(prompts_cfg["grading_system"]).strip(),
+        llm_min_confidence=float(verification_cfg["llm_min_confidence"]),
+        min_docs_for_answer=int(verification_cfg["min_docs_for_answer"]),
+        min_dedup_ratio=float(verification_cfg["min_dedup_ratio"]),
+        min_avg_snippet_chars=int(verification_cfg["min_avg_snippet_chars"]),
+        refine_system=str(prompts_cfg["refine_system"]).strip(),
+        verify_system=str(prompts_cfg["verify_system"]).strip(),
         rewrite_system=str(prompts_cfg["rewrite_system"]).strip(),
         answer_system=str(prompts_cfg["answer_system"]).strip(),
         response_agent_mode=str(response_cfg["agent_mode"]).strip(),
@@ -634,16 +644,135 @@ def _dedupe_docs(docs: list[dict[str, Any]]) -> list[dict[str, Any]]:
 def _docs_for_llm(docs: list[dict[str, Any]], *, max_docs: int) -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
     for idx, doc in enumerate(docs[: max(1, max_docs)]):
-        out.append(
+        item: dict[str, Any] = {
+            "index": idx,
+            "title": str(doc.get("title", "")).strip(),
+            "url": str(doc.get("url", "")).strip(),
+            "snippet": str(doc.get("snippet", "")).strip(),
+            "source": str(doc.get("source", "")).strip(),
+        }
+        retrieved_by_query = str(doc.get("retrieved_by_query", "")).strip()
+        if retrieved_by_query:
+            item["retrieved_by_query"] = retrieved_by_query
+        if "semantic_score" in doc:
+            try:
+                item["semantic_score"] = float(doc.get("semantic_score", 0.0))
+            except Exception:
+                item["semantic_score"] = 0.0
+        out.append(item)
+    return out
+
+
+def _normalize_indices(raw_indices: Any, *, upper_bound: int) -> list[int]:
+    output: list[int] = []
+    if not isinstance(raw_indices, list):
+        return output
+    for item in raw_indices:
+        try:
+            idx = int(item)
+        except Exception:
+            continue
+        if 0 <= idx < upper_bound and idx not in output:
+            output.append(idx)
+    return output
+
+
+def _refined_evidence_view(evidence: list[dict[str, Any]], *, max_items: int) -> list[dict[str, Any]]:
+    output: list[dict[str, Any]] = []
+    for idx, item in enumerate(evidence[: max(1, max_items)]):
+        output.append(
             {
                 "index": idx,
-                "title": str(doc.get("title", "")).strip(),
-                "url": str(doc.get("url", "")).strip(),
-                "snippet": str(doc.get("snippet", "")).strip(),
-                "source": str(doc.get("source", "")).strip(),
+                "source_index": int(item.get("source_index", idx)),
+                "title": str(item.get("title", "")).strip(),
+                "url": str(item.get("url", "")).strip(),
+                "source": str(item.get("source", "")).strip(),
+                "supporting_fact": str(item.get("supporting_fact", "")).strip(),
+                "raw_snippet": str(item.get("raw_snippet", "")).strip(),
             }
         )
-    return out
+    return output
+
+
+def _refined_evidence_text(refine_summary: str, evidence: list[dict[str, Any]]) -> str:
+    parts: list[str] = []
+    summary = str(refine_summary).strip()
+    if summary:
+        parts.append(summary)
+    for item in evidence:
+        supporting_fact = str(item.get("supporting_fact", "")).strip()
+        if supporting_fact:
+            parts.append(supporting_fact)
+            continue
+        raw_snippet = str(item.get("raw_snippet", "")).strip()
+        if raw_snippet:
+            parts.append(raw_snippet)
+    return "\n".join(parts).strip()
+
+
+def _tokenize_overlap_terms(text: str) -> set[str]:
+    return {token.lower() for token in re.findall(r"[A-Za-z0-9\u4e00-\u9fff]{2,}", str(text))}
+
+
+def _lexical_overlap(text_a: str, text_b: str) -> float:
+    tokens_a = _tokenize_overlap_terms(text_a)
+    tokens_b = _tokenize_overlap_terms(text_b)
+    if not tokens_a or not tokens_b:
+        return 0.0
+    union = tokens_a | tokens_b
+    if not union:
+        return 0.0
+    return len(tokens_a & tokens_b) / len(union)
+
+
+def _semantic_overlap(*, current_text: str, previous_text: str, embedding_cfg: EmbeddingConfig) -> float:
+    left = str(current_text).strip()
+    right = str(previous_text).strip()
+    if not left or not right:
+        return 0.0
+
+    vectors = _embed_texts(embedding_cfg=embedding_cfg, texts=[left, right])
+    if len(vectors) == 2:
+        overlap = _cosine(vectors[0], vectors[1])
+        return max(0.0, min(1.0, overlap))
+
+    return max(0.0, min(1.0, _lexical_overlap(left, right)))
+
+
+def _pack_trace(state: FlowState, *, answer_trace: dict[str, Any] | None = None) -> dict[str, Any]:
+    if answer_trace is None:
+        answer_trace = dict(state.get("answer_trace", {}))
+    return {
+        "search_trace": list(state.get("search_trace", [])),
+        "refine_trace": list(state.get("refine_trace", [])),
+        "verify_trace": list(state.get("verify_trace", [])),
+        "answer_trace": answer_trace,
+    }
+
+
+def _build_result_payload(
+    state: FlowState,
+    *,
+    policy: RetrievalPolicy,
+    answer: str,
+    uncertainty: str,
+    evidence: list[dict[str, Any]],
+    answer_trace: dict[str, Any],
+) -> dict[str, Any]:
+    return {
+        "query": str(state.get("query", "")).strip(),
+        "answer": answer,
+        "uncertainty": uncertainty,
+        "evidence": evidence,
+        "verify_state": str(state.get("verify_state", "")).strip(),
+        "verify_reason": str(state.get("verify_reason", "")).strip(),
+        "query_history": list(state.get("query_history", [])),
+        "warnings": list(state.get("warnings", [])),
+        "trace": _pack_trace(state, answer_trace=answer_trace),
+        "agent_mode": policy.response_agent_mode,
+        "engine": policy.retrieval_engine,
+        "usage_note": policy.response_usage_note,
+    }
 
 
 def _validate_input(state: FlowState) -> FlowState:
@@ -672,168 +801,354 @@ def _validate_input(state: FlowState) -> FlowState:
         "limit": limit_value,
         "iteration": 1,
         "query_history": [query_value],
+        "warnings": [],
+        "search_trace": [],
+        "refine_trace": [],
+        "verify_trace": [],
+        "answer_trace": {},
+        "refine_history": [],
     }
 
 
-def _bootstrap_retrieval(state: FlowState, *, policy: RetrievalPolicy) -> FlowState:
-    if str(state.get("task_status", "")).strip().lower() == "failed":
-        return {}
-    query = str(state.get("current_query", "")).strip()
-    docs = _search_web_docs(query=query, limit=policy.bootstrap_web_limit, policy=policy)
-    if not docs:
-        return {"task_status": "failed", "task_result": "bootstrap retrieval returned no result"}
-    return {"bootstrap_docs": _dedupe_docs(docs)}
-
-
-def _build_local_semantic_index(state: FlowState, *, embedding_cfg: EmbeddingConfig) -> FlowState:
-    if str(state.get("task_status", "")).strip().lower() == "failed":
-        return {}
-
-    docs = state.get("bootstrap_docs", [])
-    if not isinstance(docs, list) or not docs:
-        return {"task_status": "failed", "task_result": "no bootstrap docs for semantic index"}
-
-    chunks = _build_semantic_chunks(docs=docs, embedding_cfg=embedding_cfg)
-    if not chunks:
-        warnings = list(state.get("warnings", []))
-        warnings.append("local semantic index unavailable; fallback to web retrieval only")
-        return {"semantic_chunks": [], "warnings": warnings}
-    return {"semantic_chunks": chunks}
-
-
-def _hybrid_retrieve(state: FlowState, *, policy: RetrievalPolicy, embedding_cfg: EmbeddingConfig) -> FlowState:
+def _search_stage(state: FlowState, *, policy: RetrievalPolicy, embedding_cfg: EmbeddingConfig) -> FlowState:
     if str(state.get("task_status", "")).strip().lower() == "failed":
         return {}
 
     query = str(state.get("current_query", "")).strip()
+    iteration = int(state.get("iteration", 1) or 1)
     if not query:
         return {"task_status": "failed", "task_result": "current query is empty"}
 
-    web_docs = _search_web_docs(query=query, limit=policy.hybrid_web_limit, policy=policy)
-    semantic_chunks = state.get("semantic_chunks", [])
+    warnings = list(state.get("warnings", []))
+    bootstrap_docs = _dedupe_docs(_search_web_docs(query=query, limit=policy.bootstrap_web_limit, policy=policy))
+    if not bootstrap_docs:
+        return {"task_status": "failed", "task_result": "search stage returned no bootstrap result"}
+
+    semantic_chunks = _build_semantic_chunks(docs=bootstrap_docs, embedding_cfg=embedding_cfg)
+    if not semantic_chunks:
+        warnings.append("local semantic index unavailable; fallback to web retrieval only")
+
+    hybrid_web_docs = _search_web_docs(query=query, limit=policy.hybrid_web_limit, policy=policy)
     local_docs = _semantic_retrieve(
         query=query,
-        semantic_chunks=semantic_chunks if isinstance(semantic_chunks, list) else [],
+        semantic_chunks=semantic_chunks,
         embedding_cfg=embedding_cfg,
         top_k=policy.hybrid_local_limit,
     )
 
-    merged = _dedupe_docs(web_docs + local_docs)
-    if not merged:
-        return {"task_status": "failed", "task_result": "hybrid retrieval returned no result"}
-    return {"hybrid_docs": merged}
+    candidate_docs = _dedupe_docs(bootstrap_docs + hybrid_web_docs + local_docs)
+    if not candidate_docs:
+        return {"task_status": "failed", "task_result": "search stage returned no candidate docs"}
+
+    search_trace = list(state.get("search_trace", []))
+    search_trace.append(
+        {
+            "iteration": iteration,
+            "query": query,
+            "bootstrap_docs": _docs_for_llm(bootstrap_docs, max_docs=policy.max_docs_in_context),
+            "candidate_docs": _docs_for_llm(candidate_docs, max_docs=policy.max_docs_in_context),
+            "stats": {
+                "bootstrap_doc_count": len(bootstrap_docs),
+                "semantic_chunk_count": len(semantic_chunks),
+                "hybrid_web_doc_count": len(hybrid_web_docs),
+                "hybrid_local_doc_count": len(local_docs),
+                "candidate_doc_count": len(candidate_docs),
+            },
+        }
+    )
+
+    return {
+        "bootstrap_docs": bootstrap_docs,
+        "semantic_chunks": semantic_chunks,
+        "candidate_docs": candidate_docs,
+        "warnings": warnings,
+        "search_trace": search_trace,
+    }
 
 
-def _llm_grade_relevance(state: FlowState, *, policy: RetrievalPolicy, chat_cfg: ChatConfig) -> FlowState:
+def _refine_stage(state: FlowState, *, policy: RetrievalPolicy, chat_cfg: ChatConfig) -> FlowState:
     if str(state.get("task_status", "")).strip().lower() == "failed":
         return {}
 
     query = str(state.get("query", "")).strip()
     current_query = str(state.get("current_query", "")).strip()
-    docs = state.get("hybrid_docs", [])
+    docs = state.get("candidate_docs", [])
     if not isinstance(docs, list) or not docs:
-        return {"task_status": "failed", "task_result": "no docs for relevance grading"}
+        return {"task_status": "failed", "task_result": "no candidate docs for refine stage"}
 
     doc_view = _docs_for_llm(docs, max_docs=policy.max_docs_in_context)
     payload = {
-        "task": "Assess whether current evidence is sufficient to answer the user query.",
+        "task": "Refine candidate docs into grounded evidence for the query. Keep only evidence that can support answering.",
         "query": query,
         "current_query": current_query,
         "docs": doc_view,
         "output_schema": {
-            "decision": "enough|insufficient",
-            "confidence": "0~1",
-            "reason": "short explanation",
-            "selected_indices": "integer array",
+            "summary": "string",
+            "kept_indices": "integer array",
+            "evidence": [
+                {
+                    "index": "integer",
+                    "supporting_fact": "string",
+                }
+            ],
+            "dropped_noise": [
+                {
+                    "index": "integer",
+                    "reason": "string",
+                }
+            ],
         },
     }
-    result = _chat_json(chat_cfg=chat_cfg, system_prompt=policy.grading_system, user_payload=payload)
+    result = _chat_json(chat_cfg=chat_cfg, system_prompt=policy.refine_system, user_payload=payload)
 
-    decision = str(result.get("decision", "insufficient")).strip().lower()
-    if decision not in {"enough", "insufficient"}:
-        decision = "insufficient"
-    try:
-        confidence = float(result.get("confidence", 0.0))
-    except Exception:
-        confidence = 0.0
-    confidence = max(0.0, min(1.0, confidence))
-    reason = str(result.get("reason", "")).strip() or "llm grader returned empty reason"
-
-    selected_indices: list[int] = []
-    raw_indices = result.get("selected_indices", [])
-    if isinstance(raw_indices, list):
-        for item in raw_indices:
+    kept_indices = _normalize_indices(result.get("kept_indices", []), upper_bound=len(doc_view))
+    evidence_by_index: dict[int, dict[str, Any]] = {}
+    raw_evidence = result.get("evidence", [])
+    if isinstance(raw_evidence, list):
+        for item in raw_evidence:
+            if not isinstance(item, dict):
+                continue
             try:
-                idx = int(item)
+                idx = int(item.get("index", -1))
             except Exception:
                 continue
-            if 0 <= idx < len(doc_view):
-                selected_indices.append(idx)
+            if idx < 0 or idx >= len(doc_view):
+                continue
+            doc = docs[idx]
+            evidence_by_index[idx] = {
+                "source_index": idx,
+                "title": str(doc.get("title", "")).strip(),
+                "url": str(doc.get("url", "")).strip(),
+                "source": str(doc.get("source", "")).strip(),
+                "supporting_fact": str(item.get("supporting_fact", "")).strip() or str(doc.get("snippet", "")).strip(),
+                "raw_snippet": str(doc.get("snippet", "")).strip(),
+            }
 
-    selected_docs: list[dict[str, Any]] = []
-    if selected_indices:
-        for idx in selected_indices:
-            selected_docs.append(dict(docs[idx]))
-    else:
-        selected_docs = [dict(item) for item in docs[: max(1, min(policy.min_docs_for_answer, len(docs)))]]
+    for idx in kept_indices:
+        if idx in evidence_by_index:
+            continue
+        doc = docs[idx]
+        evidence_by_index[idx] = {
+            "source_index": idx,
+            "title": str(doc.get("title", "")).strip(),
+            "url": str(doc.get("url", "")).strip(),
+            "source": str(doc.get("source", "")).strip(),
+            "supporting_fact": str(doc.get("snippet", "")).strip(),
+            "raw_snippet": str(doc.get("snippet", "")).strip(),
+        }
+
+    refined_evidence = [evidence_by_index[idx] for idx in sorted(evidence_by_index)]
+    dropped_reason_by_index: dict[int, str] = {}
+    raw_dropped = result.get("dropped_noise", [])
+    if isinstance(raw_dropped, list):
+        for item in raw_dropped:
+            if not isinstance(item, dict):
+                continue
+            try:
+                idx = int(item.get("index", -1))
+            except Exception:
+                continue
+            if idx < 0 or idx >= len(doc_view):
+                continue
+            dropped_reason_by_index[idx] = str(item.get("reason", "")).strip() or "filtered during refine"
+
+    dropped_noise: list[dict[str, Any]] = []
+    kept_index_set = {int(item.get("source_index", -1)) for item in refined_evidence}
+    for idx, doc in enumerate(doc_view):
+        if idx in kept_index_set:
+            continue
+        dropped_noise.append(
+            {
+                "source_index": idx,
+                "title": str(doc.get("title", "")).strip(),
+                "url": str(doc.get("url", "")).strip(),
+                "reason": dropped_reason_by_index.get(idx, "not kept after refine"),
+            }
+        )
+
+    refine_summary = str(result.get("summary", "")).strip()
+    if not refine_summary:
+        refine_summary = _refined_evidence_text("", refined_evidence)
+
+    refine_trace = list(state.get("refine_trace", []))
+    candidate_count = len(doc_view)
+    kept_count = len(refined_evidence)
+    refine_trace.append(
+        {
+            "iteration": int(state.get("iteration", 1) or 1),
+            "query": current_query,
+            "candidate_docs": doc_view,
+            "refined_evidence": _refined_evidence_view(refined_evidence, max_items=policy.max_docs_in_context),
+            "refine_summary": refine_summary,
+            "dropped_noise": dropped_noise,
+            "stats": {
+                "candidate_doc_count": candidate_count,
+                "refined_evidence_count": kept_count,
+                "evidence_retention": round((kept_count / candidate_count), 4) if candidate_count else 0.0,
+                "denoise_ratio": round((len(dropped_noise) / candidate_count), 4) if candidate_count else 0.0,
+            },
+        }
+    )
 
     return {
-        "grade_decision": decision,
-        "grade_confidence": confidence,
-        "grade_reason": reason,
-        "selected_docs": selected_docs,
+        "refined_evidence": refined_evidence,
+        "refine_summary": refine_summary,
+        "dropped_noise": dropped_noise,
+        "refine_trace": refine_trace,
     }
 
 
-def _heuristic_guardrail(state: FlowState, *, policy: RetrievalPolicy) -> FlowState:
+def _verify_stage(state: FlowState, *, policy: RetrievalPolicy, chat_cfg: ChatConfig, embedding_cfg: EmbeddingConfig) -> FlowState:
     if str(state.get("task_status", "")).strip().lower() == "failed":
         return {}
 
-    docs = state.get("selected_docs", [])
-    if not isinstance(docs, list):
-        docs = []
-    total = len(docs)
-    unique_url = len({str(doc.get("url", "")).strip() for doc in docs if str(doc.get("url", "")).strip()})
-    dedup_ratio = (unique_url / total) if total > 0 else 0.0
+    query = str(state.get("query", "")).strip()
+    current_query = str(state.get("current_query", "")).strip()
+    iteration = int(state.get("iteration", 1) or 1)
+    refined_evidence = state.get("refined_evidence", [])
+    if not isinstance(refined_evidence, list):
+        refined_evidence = []
 
-    snippets = [str(doc.get("snippet", "")).strip() for doc in docs if str(doc.get("snippet", "")).strip()]
-    avg_snippet_chars = (sum(len(item) for item in snippets) / len(snippets)) if snippets else 0.0
+    refined_view = _refined_evidence_view(refined_evidence, max_items=policy.max_docs_in_context)
+    refine_summary = str(state.get("refine_summary", "")).strip()
+    refine_history = list(state.get("refine_history", []))
+    previous_context_summary = "\n".join(refine_history).strip()
+    current_context_summary = _refined_evidence_text(refine_summary, refined_evidence)
+    info_gain_overlap = _semantic_overlap(
+        current_text=current_context_summary,
+        previous_text=previous_context_summary,
+        embedding_cfg=embedding_cfg,
+    )
 
-    source_counts: dict[str, int] = {}
-    for doc in docs:
-        source = str(doc.get("source", "unknown")).strip() or "unknown"
-        source_counts[source] = source_counts.get(source, 0) + 1
+    evidence_count = len(refined_evidence)
+    unique_url = len({str(item.get("url", "")).strip() for item in refined_evidence if str(item.get("url", "")).strip()})
+    dedup_ratio = (unique_url / evidence_count) if evidence_count else 0.0
+    supporting_texts = [
+        str(item.get("supporting_fact", "")).strip() or str(item.get("raw_snippet", "")).strip()
+        for item in refined_evidence
+        if str(item.get("supporting_fact", "")).strip() or str(item.get("raw_snippet", "")).strip()
+    ]
+    avg_support_chars = (sum(len(text) for text in supporting_texts) / len(supporting_texts)) if supporting_texts else 0.0
 
-    llm_decision = str(state.get("grade_decision", "insufficient")).strip().lower()
-    try:
-        llm_conf = float(state.get("grade_confidence", 0.0))
-    except Exception:
-        llm_conf = 0.0
-
-    pass_docs = total >= policy.min_docs_for_answer
+    pass_docs = evidence_count >= policy.min_docs_for_answer
     pass_dedup = dedup_ratio >= policy.min_dedup_ratio
-    pass_snippet = avg_snippet_chars >= float(policy.min_avg_snippet_chars)
-    pass_llm = llm_decision == "enough" and llm_conf >= policy.llm_min_confidence
+    pass_snippet = avg_support_chars >= float(policy.min_avg_snippet_chars)
+    can_continue = bool(policy.allow_rewrite and iteration < policy.max_iterations)
 
-    enough = bool(pass_docs and pass_dedup and pass_snippet and pass_llm)
-    reason = str(state.get("grade_reason", "")).strip()
-    if not enough:
-        reason = reason or "heuristic guardrail rejected current evidence"
+    raw_result: dict[str, Any] = {}
+    if refined_view:
+        payload = {
+            "task": "Verify whether refined evidence is sufficient for a grounded answer.",
+            "query": query,
+            "current_query": current_query,
+            "iteration": iteration,
+            "max_iterations": policy.max_iterations,
+            "refined_evidence": refined_view,
+            "refine_summary": refine_summary,
+            "previous_context_summary": previous_context_summary,
+            "info_gain_overlap": round(info_gain_overlap, 6),
+            "output_schema": {
+                "verify_state": "sufficient|insufficient_continue|insufficient_not_found",
+                "confidence": "0~1",
+                "reason": "string",
+                "coverage": "0~1",
+                "faithfulness": "0~1",
+                "answer_quality": "0~1",
+            },
+        }
+        raw_result = _chat_json(chat_cfg=chat_cfg, system_prompt=policy.verify_system, user_payload=payload)
+
+    llm_state = str(raw_result.get("verify_state", "")).strip().lower()
+    if llm_state not in {"sufficient", "insufficient_continue", "insufficient_not_found"}:
+        llm_state = "insufficient_continue" if can_continue else "insufficient_not_found"
+
+    try:
+        llm_confidence = float(raw_result.get("confidence", 0.0))
+    except Exception:
+        llm_confidence = 0.0
+    llm_confidence = max(0.0, min(1.0, llm_confidence))
+
+    reason = str(raw_result.get("reason", "")).strip()
+    if not reason and not refined_view:
+        reason = "refine stage produced no usable evidence"
+
+    if llm_state == "sufficient":
+        if pass_docs and pass_dedup and pass_snippet and llm_confidence >= policy.llm_min_confidence:
+            verify_state = "sufficient"
+        else:
+            verify_state = "insufficient_continue" if can_continue else "insufficient_not_found"
+            if not reason:
+                reason = "verify guardrail rejected current evidence"
+    elif llm_state == "insufficient_not_found":
+        verify_state = "insufficient_not_found"
+    else:
+        verify_state = "insufficient_continue" if can_continue else "insufficient_not_found"
+
+    if not refined_view:
+        verify_state = "insufficient_continue" if can_continue else "insufficient_not_found"
+
+    if not reason:
+        if verify_state == "sufficient":
+            reason = "refined evidence is sufficient for grounded answer generation"
+        elif verify_state == "insufficient_continue":
+            reason = "current evidence is incomplete; another search round is allowed"
+        else:
+            reason = policy.no_result_message
+
+    coverage = raw_result.get("coverage")
+    faithfulness = raw_result.get("faithfulness")
+    answer_quality = raw_result.get("answer_quality")
+    verify_trace = list(state.get("verify_trace", []))
+    verify_trace.append(
+        {
+            "iteration": iteration,
+            "query": current_query,
+            "verify_state": verify_state,
+            "verify_reason": reason,
+            "confidence": llm_confidence,
+            "continue_search": verify_state == "insufficient_continue",
+            "info_gain_overlap": round(info_gain_overlap, 6),
+            "heuristic": {
+                "refined_evidence_count": evidence_count,
+                "unique_url": unique_url,
+                "dedup_ratio": round(dedup_ratio, 4),
+                "avg_support_chars": round(avg_support_chars, 2),
+                "pass_docs": pass_docs,
+                "pass_dedup": pass_dedup,
+                "pass_snippet": pass_snippet,
+                "pass_llm": llm_confidence >= policy.llm_min_confidence,
+            },
+            "reward_interface": {
+                "answer_track": {
+                    "coverage": coverage,
+                    "faithfulness": faithfulness,
+                    "answer_quality": answer_quality,
+                },
+                "refine_track": {
+                    "evidence_retention": round((evidence_count / max(1, len(state.get("candidate_docs", [])))), 4),
+                    "denoise": round((len(state.get("dropped_noise", [])) / max(1, len(state.get("candidate_docs", [])))), 4),
+                    "completeness_proxy": round(min(1.0, evidence_count / max(1, policy.min_docs_for_answer)), 4),
+                },
+                "format_track": {
+                    "verify_state_valid": verify_state in {"sufficient", "insufficient_continue", "insufficient_not_found"},
+                    "trace_emitted": True,
+                },
+                "info_gain_overlap": round(info_gain_overlap, 6),
+            },
+        }
+    )
+
+    updated_refine_history = refine_history
+    if current_context_summary:
+        updated_refine_history = refine_history + [current_context_summary]
 
     return {
-        "heuristic": {
-            "total_docs": total,
-            "unique_url": unique_url,
-            "dedup_ratio": round(dedup_ratio, 4),
-            "avg_snippet_chars": round(avg_snippet_chars, 2),
-            "source_counts": source_counts,
-            "pass_docs": pass_docs,
-            "pass_dedup": pass_dedup,
-            "pass_snippet": pass_snippet,
-            "pass_llm": pass_llm,
-        },
-        "grade_decision": "enough" if enough else "insufficient",
-        "grade_reason": reason,
+        "verify_state": verify_state,
+        "verify_reason": reason,
+        "verify_confidence": llm_confidence,
+        "continue_search": verify_state == "insufficient_continue",
+        "verify_trace": verify_trace,
+        "refine_history": updated_refine_history,
     }
 
 
@@ -843,16 +1158,21 @@ def _rewrite_query(state: FlowState, *, policy: RetrievalPolicy, chat_cfg: ChatC
 
     query = str(state.get("query", "")).strip()
     current_query = str(state.get("current_query", "")).strip()
-    reason = str(state.get("grade_reason", "")).strip()
-    docs = state.get("hybrid_docs", [])
+    reason = str(state.get("verify_reason", "")).strip()
+    docs = state.get("candidate_docs", [])
     doc_view = _docs_for_llm(docs if isinstance(docs, list) else [], max_docs=policy.max_docs_in_context)
+    refined_view = _refined_evidence_view(
+        state.get("refined_evidence", []) if isinstance(state.get("refined_evidence", []), list) else [],
+        max_items=policy.max_docs_in_context,
+    )
 
     payload = {
-        "task": "Rewrite retrieval query to improve evidence quality while keeping user intent unchanged.",
+        "task": "Rewrite the retrieval query to improve the next search round while keeping user intent unchanged.",
         "user_query": query,
         "current_query": current_query,
-        "reason": reason,
-        "docs": doc_view,
+        "verify_reason": reason,
+        "candidate_docs": doc_view,
+        "refined_evidence": refined_view,
         "output_schema": {"rewritten_query": "string"},
     }
     result = _chat_json(
@@ -879,29 +1199,24 @@ def _rewrite_query(state: FlowState, *, policy: RetrievalPolicy, chat_cfg: ChatC
     }
 
 
-def _synthesize_answer(state: FlowState, *, policy: RetrievalPolicy, chat_cfg: ChatConfig) -> FlowState:
+def _answer_stage(state: FlowState, *, policy: RetrievalPolicy, chat_cfg: ChatConfig) -> FlowState:
     if str(state.get("task_status", "")).strip().lower() == "failed":
         return state
 
-    query = str(state.get("query", "")).strip()
-    decision = str(state.get("grade_decision", "insufficient")).strip().lower()
-    docs = state.get("selected_docs", [])
-    if not isinstance(docs, list) or not docs or decision != "enough":
-        payload = {
-            "query": query,
-            "task_status": "failed",
-            "reason": str(state.get("grade_reason", "")).strip() or policy.no_result_message,
-            "heuristic": state.get("heuristic", {}),
-            "query_history": state.get("query_history", []),
-            "agent_mode": policy.response_agent_mode,
-        }
-        return {"task_status": "failed", "task_result": json.dumps(payload, ensure_ascii=False)}
+    verify_state = str(state.get("verify_state", "")).strip().lower()
+    refined_evidence = state.get("refined_evidence", [])
+    if verify_state != "sufficient" or not isinstance(refined_evidence, list) or not refined_evidence:
+        return _finalize_failure(state, policy=policy)
 
-    doc_view = _docs_for_llm(docs, max_docs=policy.max_docs_in_context)
+    query = str(state.get("query", "")).strip()
+    refine_summary = str(state.get("refine_summary", "")).strip()
+    evidence_view = _refined_evidence_view(refined_evidence, max_items=policy.max_docs_in_context)
+
     payload = {
-        "task": "Produce a concise answer based only on evidence. If evidence conflicts, mention uncertainty.",
+        "task": "Produce a concise answer using only refined evidence. Surface uncertainty when evidence is weak or conflicting.",
         "query": query,
-        "docs": doc_view,
+        "refine_summary": refine_summary,
+        "refined_evidence": evidence_view,
         "output_schema": {
             "answer": "string",
             "key_points": ["string"],
@@ -910,10 +1225,8 @@ def _synthesize_answer(state: FlowState, *, policy: RetrievalPolicy, chat_cfg: C
     }
     ans = _chat_json(chat_cfg=chat_cfg, system_prompt=policy.answer_system, user_payload=payload)
 
-    answer = str(ans.get("answer", "")).strip()
-    if not answer:
-        answer = policy.no_result_message
-
+    answer = str(ans.get("answer", "")).strip() or policy.no_result_message
+    uncertainty = str(ans.get("uncertainty", "")).strip()
     key_points_raw = ans.get("key_points", [])
     key_points: list[str] = []
     if isinstance(key_points_raw, list):
@@ -922,69 +1235,107 @@ def _synthesize_answer(state: FlowState, *, policy: RetrievalPolicy, chat_cfg: C
             if text:
                 key_points.append(text)
 
-    output: dict[str, Any] = {
+    answer_trace = {
+        "status": "generated",
         "query": query,
-        "answer": answer,
+        "verify_state": verify_state,
+        "evidence_used": evidence_view,
         "key_points": key_points,
-        "uncertainty": str(ans.get("uncertainty", "")).strip(),
-        "evidence": doc_view,
-        "query_history": state.get("query_history", []),
-        "heuristic": state.get("heuristic", {}),
-        "warnings": state.get("warnings", []),
-        "agent_mode": policy.response_agent_mode,
-        "engine": policy.retrieval_engine,
-        "usage_note": policy.response_usage_note,
     }
 
+    output = _build_result_payload(
+        state,
+        policy=policy,
+        answer=answer,
+        uncertainty=uncertainty,
+        evidence=evidence_view,
+        answer_trace=answer_trace,
+    )
+    output["key_points"] = key_points
+
     return {
+        "answer_trace": answer_trace,
         "task_status": "done",
         "task_result": json.dumps(output, ensure_ascii=False),
     }
 
 
-def _decide_next(state: FlowState, *, policy: RetrievalPolicy) -> str:
+def _finalize_failure(state: FlowState, *, policy: RetrievalPolicy) -> FlowState:
+    verify_state = str(state.get("verify_state", "")).strip().lower() or "insufficient_not_found"
+    if verify_state not in {"sufficient", "insufficient_continue", "insufficient_not_found"}:
+        verify_state = "insufficient_not_found"
+    verify_reason = str(state.get("verify_reason", "")).strip() or str(state.get("task_result", "")).strip() or policy.no_result_message
+    evidence = _refined_evidence_view(
+        state.get("refined_evidence", []) if isinstance(state.get("refined_evidence", []), list) else [],
+        max_items=policy.max_docs_in_context,
+    )
+    answer_trace = {
+        "status": "skipped",
+        "query": str(state.get("query", "")).strip(),
+        "verify_state": verify_state,
+        "reason": verify_reason,
+        "evidence_used": [],
+    }
+
+    shadow_state = dict(state)
+    shadow_state["verify_state"] = verify_state
+    shadow_state["verify_reason"] = verify_reason
+    output = _build_result_payload(
+        shadow_state,  # type: ignore[arg-type]
+        policy=policy,
+        answer="",
+        uncertainty=verify_reason,
+        evidence=evidence,
+        answer_trace=answer_trace,
+    )
+
+    return {
+        "verify_state": verify_state,
+        "verify_reason": verify_reason,
+        "answer_trace": answer_trace,
+        "task_status": "failed",
+        "task_result": json.dumps(output, ensure_ascii=False),
+    }
+
+
+def _decide_next(state: FlowState) -> str:
     if str(state.get("task_status", "")).strip().lower() == "failed":
-        return "synthesize"
+        return "fail"
 
-    decision = str(state.get("grade_decision", "insufficient")).strip().lower()
-    iteration = int(state.get("iteration", 1) or 1)
-
-    if decision == "enough":
-        return "synthesize"
-    if not policy.allow_rewrite:
-        return "synthesize"
-    if iteration >= policy.max_iterations:
-        return "synthesize"
-    return "rewrite"
+    verify_state = str(state.get("verify_state", "")).strip().lower()
+    if verify_state == "sufficient":
+        return "answer"
+    if verify_state == "insufficient_continue":
+        return "rewrite"
+    return "fail"
 
 
 def _build_workflow(*, policy: RetrievalPolicy, chat_cfg: ChatConfig, embedding_cfg: EmbeddingConfig) -> Any:
     builder = StateGraph(FlowState)
     builder.add_node("validate_input", _validate_input)
-    builder.add_node("bootstrap_retrieval", lambda state: _bootstrap_retrieval(state, policy=policy))
-    builder.add_node("build_local_semantic_index", lambda state: _build_local_semantic_index(state, embedding_cfg=embedding_cfg))
-    builder.add_node("hybrid_retrieve", lambda state: _hybrid_retrieve(state, policy=policy, embedding_cfg=embedding_cfg))
-    builder.add_node("llm_grade_relevance", lambda state: _llm_grade_relevance(state, policy=policy, chat_cfg=chat_cfg))
-    builder.add_node("heuristic_guardrail", lambda state: _heuristic_guardrail(state, policy=policy))
+    builder.add_node("search_stage", lambda state: _search_stage(state, policy=policy, embedding_cfg=embedding_cfg))
+    builder.add_node("refine_stage", lambda state: _refine_stage(state, policy=policy, chat_cfg=chat_cfg))
+    builder.add_node("verify_stage", lambda state: _verify_stage(state, policy=policy, chat_cfg=chat_cfg, embedding_cfg=embedding_cfg))
     builder.add_node("rewrite_query", lambda state: _rewrite_query(state, policy=policy, chat_cfg=chat_cfg))
-    builder.add_node("synthesize_answer", lambda state: _synthesize_answer(state, policy=policy, chat_cfg=chat_cfg))
+    builder.add_node("answer_stage", lambda state: _answer_stage(state, policy=policy, chat_cfg=chat_cfg))
+    builder.add_node("finalize_failure", lambda state: _finalize_failure(state, policy=policy))
 
     builder.add_edge(START, "validate_input")
-    builder.add_edge("validate_input", "bootstrap_retrieval")
-    builder.add_edge("bootstrap_retrieval", "build_local_semantic_index")
-    builder.add_edge("build_local_semantic_index", "hybrid_retrieve")
-    builder.add_edge("hybrid_retrieve", "llm_grade_relevance")
-    builder.add_edge("llm_grade_relevance", "heuristic_guardrail")
+    builder.add_edge("validate_input", "search_stage")
+    builder.add_edge("search_stage", "refine_stage")
+    builder.add_edge("refine_stage", "verify_stage")
     builder.add_conditional_edges(
-        "heuristic_guardrail",
-        lambda state: _decide_next(state, policy=policy),
+        "verify_stage",
+        _decide_next,
         {
             "rewrite": "rewrite_query",
-            "synthesize": "synthesize_answer",
+            "answer": "answer_stage",
+            "fail": "finalize_failure",
         },
     )
-    builder.add_edge("rewrite_query", "hybrid_retrieve")
-    builder.add_edge("synthesize_answer", END)
+    builder.add_edge("rewrite_query", "search_stage")
+    builder.add_edge("answer_stage", END)
+    builder.add_edge("finalize_failure", END)
     return builder.compile()
 
 

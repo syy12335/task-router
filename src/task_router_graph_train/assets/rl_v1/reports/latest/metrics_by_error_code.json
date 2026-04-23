@@ -1,0 +1,230 @@
+{
+  "E1_ENV_LOOP_READ": {
+    "count": 3,
+    "reward": {
+      "mean": 3.0,
+      "p50": 3.0,
+      "p90": 3.0,
+      "ci95": [
+        3.0,
+        3.0
+      ]
+    },
+    "prediction_found": {
+      "mean": 1.0,
+      "p50": 1.0,
+      "p90": 1.0,
+      "ci95": [
+        1.0,
+        1.0
+      ]
+    },
+    "status_semantic_accuracy": {
+      "mean": 0.0,
+      "p50": 0.0,
+      "p90": 0.0,
+      "ci95": [
+        0.0,
+        0.0
+      ]
+    },
+    "final_result_match": {
+      "mean": 1.0,
+      "p50": 1.0,
+      "p90": 1.0,
+      "ci95": [
+        1.0,
+        1.0
+      ]
+    },
+    "reply_grounded": {
+      "mean": 0.0,
+      "p50": 0.0,
+      "p90": 0.0,
+      "ci95": [
+        0.0,
+        0.0
+      ]
+    },
+    "sidecar_leak": {
+      "mean": 0.0,
+      "p50": 0.0,
+      "p90": 0.0,
+      "ci95": [
+        0.0,
+        0.0
+      ]
+    }
+  },
+  "E2_STATUS_REPLY_MISMATCH": {
+    "count": 5,
+    "reward": {
+      "mean": 3.0,
+      "p50": 3.0,
+      "p90": 3.0,
+      "ci95": [
+        3.0,
+        3.0
+      ]
+    },
+    "prediction_found": {
+      "mean": 1.0,
+      "p50": 1.0,
+      "p90": 1.0,
+      "ci95": [
+        1.0,
+        1.0
+      ]
+    },
+    "status_semantic_accuracy": {
+      "mean": 0.0,
+      "p50": 0.0,
+      "p90": 0.0,
+      "ci95": [
+        0.0,
+        0.0
+      ]
+    },
+    "final_result_match": {
+      "mean": 1.0,
+      "p50": 1.0,
+      "p90": 1.0,
+      "ci95": [
+        1.0,
+        1.0
+      ]
+    },
+    "reply_grounded": {
+      "mean": 0.0,
+      "p50": 0.0,
+      "p90": 0.0,
+      "ci95": [
+        0.0,
+        0.0
+      ]
+    },
+    "sidecar_leak": {
+      "mean": 0.0,
+      "p50": 0.0,
+      "p90": 0.0,
+      "ci95": [
+        0.0,
+        0.0
+      ]
+    }
+  },
+  "E3_ENV_FACT_IGNORED": {
+    "count": 8,
+    "reward": {
+      "mean": 3.0,
+      "p50": 3.0,
+      "p90": 3.0,
+      "ci95": [
+        3.0,
+        3.0
+      ]
+    },
+    "prediction_found": {
+      "mean": 1.0,
+      "p50": 1.0,
+      "p90": 1.0,
+      "ci95": [
+        1.0,
+        1.0
+      ]
+    },
+    "status_semantic_accuracy": {
+      "mean": 0.0,
+      "p50": 0.0,
+      "p90": 0.0,
+      "ci95": [
+        0.0,
+        0.0
+      ]
+    },
+    "final_result_match": {
+      "mean": 1.0,
+      "p50": 1.0,
+      "p90": 1.0,
+      "ci95": [
+        1.0,
+        1.0
+      ]
+    },
+    "reply_grounded": {
+      "mean": 0.0,
+      "p50": 0.0,
+      "p90": 0.0,
+      "ci95": [
+        0.0,
+        0.0
+      ]
+    },
+    "sidecar_leak": {
+      "mean": 0.0,
+      "p50": 0.0,
+      "p90": 0.0,
+      "ci95": [
+        0.0,
+        0.0
+      ]
+    }
+  },
+  "E4_STEP_EXHAUST_NO_TOOL": {
+    "count": 4,
+    "reward": {
+      "mean": 3.0,
+      "p50": 3.0,
+      "p90": 3.0,
+      "ci95": [
+        3.0,
+        3.0
+      ]
+    },
+    "prediction_found": {
+      "mean": 1.0,
+      "p50": 1.0,
+      "p90": 1.0,
+      "ci95": [
+        1.0,
+        1.0
+      ]
+    },
+    "status_semantic_accuracy": {
+      "mean": 0.0,
+      "p50": 0.0,
+      "p90": 0.0,
+      "ci95": [
+        0.0,
+        0.0
+      ]
+    },
+    "final_result_match": {
+      "mean": 1.0,
+      "p50": 1.0,
+      "p90": 1.0,
+      "ci95": [
+        1.0,
+        1.0
+      ]
+    },
+    "reply_grounded": {
+      "mean": 0.0,
+      "p50": 0.0,
+      "p90": 0.0,
+      "ci95": [
+        0.0,
+        0.0
+      ]
+    },
+    "sidecar_leak": {
+      "mean": 0.0,
+      "p50": 0.0,
+      "p90": 0.0,
+      "ci95": [
+        0.0,
+        0.0
+      ]
+    }
+  }
+}

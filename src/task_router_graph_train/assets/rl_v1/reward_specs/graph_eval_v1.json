@@ -1,0 +1,14 @@
+{
+  "spec_id": "graph_eval_v1",
+  "mode": "eval_only",
+  "description": "Locked holdout scorer for end-to-end graph runs on the sanitized k20 holdout.",
+  "weights": {
+    "status_semantic_accuracy": 4.0,
+    "final_result_match": 3.0,
+    "reply_grounded": 2.0,
+    "sidecar_leak": -3.0
+  },
+  "notes": [
+    "Use this spec for graph-level regression checks, not for RL optimization."
+  ]
+}

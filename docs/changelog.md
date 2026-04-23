@@ -1,13 +1,14 @@
 # 近期更新对齐
 
-范围：2026-04-14 至 2026-04-16
+范围：2026-04-14 至 2026-04-17
 
 ## 时间线
 
 | 日期 | 提交 | 主题 | 影响面 |
 |---|---|---|---|
-| 2026-04-16 | - | 数据口径重构：统一 `eval_samples` + 手工 `k20` + 历史归档 | 后训练评测数据不再区分 mock/real；新增 `data/eval_samples/k20_manual`；过时 `cases/environments/rl/mock` 迁移至 `data/archive_legacy/2026-04` |
-| 2026-04-16 | - | 后训练方案改为问题修复导向（真实轨迹优先） | `docs/post_training_playbook.md` 与 `docs/eval_spec.md` 改为“environment/task 机制理解”主目标；弃用 mock 数据作为主评测来源，改为真实运行轨迹评测 |
+| 2026-04-17 | - | 训练/运行拆分：RL 真源迁入 `task_router_graph_train` | 训练实现从 `task_router_graph` 运行时包移出；新增 `src/task_router_graph_train/` 承接 docs、assets、CLI、reward spec 与离线评测；项目根不再作为 RL v1 正式入口 |
+| 2026-04-16 | - | 数据口径重构：统一手工 holdout 与历史归档 | 后训练评测不再区分 mock/real；手工样本与正式 holdout 现由训练模块内部资产目录承接；过时 `cases/environments/rl/mock` 迁移至 `data/archive_legacy/2026-04` |
+| 2026-04-16 | - | 后训练目标改为问题修复导向（真实轨迹优先） | RL 目标转向 formal `environment/task` 语义建模与修复决策；文档与评测规范已随训练模块迁移到 `src/task_router_graph_train/docs/` |
 | 2026-04-16 | - | time_range_info 升级为 Agentic CRAG + 混合检索 | `time_range_info worker graph` 改为 `bootstrap -> hybrid retrieve -> LLM grader -> rewrite loop -> synthesize`；主 graph 本体（`src/task_router_graph/graph.py`）不变，pyskill 负责异步触发与回填；新增 embedding 配置入口并增强静态扫描约束 |
 | 2026-04-16 | - | docs: PySkill 设计稿补充“落地对照 + TODO” | 明确已落地亮点（非阻塞派发、pre-reply 收敛、run_id 幂等）与未落地能力（heartbeat/step 可视化等） |
 | 2026-04-16 | - | 引入 pyskill 模式（skill-mode）与进程巡检回填 | skill_tool 支持非阻塞进程派发；pre-reply 巡检可对死进程/超时自动 failed 收敛；支持重启后 running 任务兜底 |

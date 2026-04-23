@@ -1,0 +1,6 @@
+{
+  "record_count": 20,
+  "prediction_count": 20,
+  "record_path": "/root/WORK/task-rounting/src/task_router_graph_train/assets/rl_v1/holdout/k20_manual_records.jsonl",
+  "prediction_path": "/root/WORK/task-rounting/src/task_router_graph_train/assets/rl_v1/holdout/k20_manual_records.jsonl"
+}

@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "time_range_info_distillation_sample",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["query", "teacher_model", "trajectory"],
+  "properties": {
+    "query": {"type": "string"},
+    "teacher_model": {"type": "string"},
+    "trajectory": {
+      "type": "array",
+      "minItems": 5,
+      "items": {
+        "type": "object",
+        "required": ["action", "content"],
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": ["think", "search", "refine", "verify", "answer"]
+          },
+          "content": {}
+        }
+      }
+    },
+    "metadata": {"type": "object"}
+  }
+}

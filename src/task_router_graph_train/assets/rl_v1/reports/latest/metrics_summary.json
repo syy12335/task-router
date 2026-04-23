@@ -1,0 +1,358 @@
+{
+  "overall": {
+    "count": 20,
+    "reward": {
+      "mean": 3.0,
+      "p50": 3.0,
+      "p90": 3.0,
+      "ci95": [
+        3.0,
+        3.0
+      ]
+    },
+    "prediction_found": {
+      "mean": 1.0,
+      "p50": 1.0,
+      "p90": 1.0,
+      "ci95": [
+        1.0,
+        1.0
+      ]
+    },
+    "status_semantic_accuracy": {
+      "mean": 0.0,
+      "p50": 0.0,
+      "p90": 0.0,
+      "ci95": [
+        0.0,
+        0.0
+      ]
+    },
+    "final_result_match": {
+      "mean": 1.0,
+      "p50": 1.0,
+      "p90": 1.0,
+      "ci95": [
+        1.0,
+        1.0
+      ]
+    },
+    "reply_grounded": {
+      "mean": 0.0,
+      "p50": 0.0,
+      "p90": 0.0,
+      "ci95": [
+        0.0,
+        0.0
+      ]
+    },
+    "sidecar_leak": {
+      "mean": 0.0,
+      "p50": 0.0,
+      "p90": 0.0,
+      "ci95": [
+        0.0,
+        0.0
+      ]
+    }
+  },
+  "leaderboards": {
+    "controller_core": {
+      "count": 6,
+      "reward": {
+        "mean": 3.0,
+        "p50": 3.0,
+        "p90": 3.0,
+        "ci95": [
+          3.0,
+          3.0
+        ]
+      },
+      "prediction_found": {
+        "mean": 1.0,
+        "p50": 1.0,
+        "p90": 1.0,
+        "ci95": [
+          1.0,
+          1.0
+        ]
+      },
+      "status_semantic_accuracy": {
+        "mean": 0.0,
+        "p50": 0.0,
+        "p90": 0.0,
+        "ci95": [
+          0.0,
+          0.0
+        ]
+      },
+      "final_result_match": {
+        "mean": 1.0,
+        "p50": 1.0,
+        "p90": 1.0,
+        "ci95": [
+          1.0,
+          1.0
+        ]
+      },
+      "reply_grounded": {
+        "mean": 0.0,
+        "p50": 0.0,
+        "p90": 0.0,
+        "ci95": [
+          0.0,
+          0.0
+        ]
+      },
+      "sidecar_leak": {
+        "mean": 0.0,
+        "p50": 0.0,
+        "p90": 0.0,
+        "ci95": [
+          0.0,
+          0.0
+        ]
+      }
+    },
+    "executor_guardrail": {
+      "count": 6,
+      "reward": {
+        "mean": 3.0,
+        "p50": 3.0,
+        "p90": 3.0,
+        "ci95": [
+          3.0,
+          3.0
+        ]
+      },
+      "prediction_found": {
+        "mean": 1.0,
+        "p50": 1.0,
+        "p90": 1.0,
+        "ci95": [
+          1.0,
+          1.0
+        ]
+      },
+      "status_semantic_accuracy": {
+        "mean": 0.0,
+        "p50": 0.0,
+        "p90": 0.0,
+        "ci95": [
+          0.0,
+          0.0
+        ]
+      },
+      "final_result_match": {
+        "mean": 1.0,
+        "p50": 1.0,
+        "p90": 1.0,
+        "ci95": [
+          1.0,
+          1.0
+        ]
+      },
+      "reply_grounded": {
+        "mean": 0.0,
+        "p50": 0.0,
+        "p90": 0.0,
+        "ci95": [
+          0.0,
+          0.0
+        ]
+      },
+      "sidecar_leak": {
+        "mean": 0.0,
+        "p50": 0.0,
+        "p90": 0.0,
+        "ci95": [
+          0.0,
+          0.0
+        ]
+      }
+    },
+    "graph_deterministic": {
+      "count": 9,
+      "reward": {
+        "mean": 3.0,
+        "p50": 3.0,
+        "p90": 3.0,
+        "ci95": [
+          3.0,
+          3.0
+        ]
+      },
+      "prediction_found": {
+        "mean": 1.0,
+        "p50": 1.0,
+        "p90": 1.0,
+        "ci95": [
+          1.0,
+          1.0
+        ]
+      },
+      "status_semantic_accuracy": {
+        "mean": 0.0,
+        "p50": 0.0,
+        "p90": 0.0,
+        "ci95": [
+          0.0,
+          0.0
+        ]
+      },
+      "final_result_match": {
+        "mean": 1.0,
+        "p50": 1.0,
+        "p90": 1.0,
+        "ci95": [
+          1.0,
+          1.0
+        ]
+      },
+      "reply_grounded": {
+        "mean": 0.0,
+        "p50": 0.0,
+        "p90": 0.0,
+        "ci95": [
+          0.0,
+          0.0
+        ]
+      },
+      "sidecar_leak": {
+        "mean": 0.0,
+        "p50": 0.0,
+        "p90": 0.0,
+        "ci95": [
+          0.0,
+          0.0
+        ]
+      }
+    },
+    "reply_core": {
+      "count": 9,
+      "reward": {
+        "mean": 3.0,
+        "p50": 3.0,
+        "p90": 3.0,
+        "ci95": [
+          3.0,
+          3.0
+        ]
+      },
+      "prediction_found": {
+        "mean": 1.0,
+        "p50": 1.0,
+        "p90": 1.0,
+        "ci95": [
+          1.0,
+          1.0
+        ]
+      },
+      "status_semantic_accuracy": {
+        "mean": 0.0,
+        "p50": 0.0,
+        "p90": 0.0,
+        "ci95": [
+          0.0,
+          0.0
+        ]
+      },
+      "final_result_match": {
+        "mean": 1.0,
+        "p50": 1.0,
+        "p90": 1.0,
+        "ci95": [
+          1.0,
+          1.0
+        ]
+      },
+      "reply_grounded": {
+        "mean": 0.0,
+        "p50": 0.0,
+        "p90": 0.0,
+        "ci95": [
+          0.0,
+          0.0
+        ]
+      },
+      "sidecar_leak": {
+        "mean": 0.0,
+        "p50": 0.0,
+        "p90": 0.0,
+        "ci95": [
+          0.0,
+          0.0
+        ]
+      }
+    }
+  },
+  "reward_specs": {
+    "controller_v1": {
+      "spec_id": "controller_v1",
+      "mode": "batch_rl",
+      "description": "Controller batch RL for environment-grounded next-action selection.",
+      "weights": {
+        "schema_valid": 1.0,
+        "action_kind_correct": 2.0,
+        "tool_or_task_type_correct": 2.0,
+        "formal_env_fact_used": 2.0,
+        "observe_budget_ok": 1.0,
+        "next_action_equivalent": 3.0,
+        "repeated_observe": -2.0,
+        "sidecar_leak": -3.0,
+        "hallucinated_fact": -3.0
+      },
+      "notes": [
+        "Use programmatic verification before introducing any learned reward model.",
+        "Apply this spec only to controller-role records whose gold output includes structured action labels."
+      ]
+    },
+    "reply_v1": {
+      "spec_id": "reply_v1",
+      "mode": "batch_rl",
+      "description": "Reply contextual-bandit reward for stable environment-to-reply semantics.",
+      "weights": {
+        "status_semantic_correct": 3.0,
+        "linked_result_resolution_correct": 2.0,
+        "grounded_on_formal_inputs": 2.0,
+        "actionable_failure_guidance": 1.0,
+        "concise_not_underexplained": 1.0,
+        "running_misclassified": -4.0,
+        "failed_misclassified": -4.0,
+        "hallucinated_fact": -3.0
+      },
+      "notes": [
+        "This spec assumes the model only sees FINAL_TASK_JSON and ENVIRONMENT_JSON built from formal state.",
+        "Use LLM-judge only as a secondary reward after rule metrics stabilize."
+      ]
+    },
+    "graph_eval_v1": {
+      "spec_id": "graph_eval_v1",
+      "mode": "eval_only",
+      "description": "Locked holdout scorer for end-to-end graph runs on the sanitized k20 holdout.",
+      "weights": {
+        "status_semantic_accuracy": 4.0,
+        "final_result_match": 3.0,
+        "reply_grounded": 2.0,
+        "sidecar_leak": -3.0
+      },
+      "notes": [
+        "Use this spec for graph-level regression checks, not for RL optimization."
+      ]
+    },
+    "executor_guardrail_v1": {
+      "spec_id": "executor_guardrail_v1",
+      "mode": "eval_only",
+      "description": "Executor-only guardrail checks that should remain outside RL v1.",
+      "weights": {
+        "skill_activation_order_ok": 2.0,
+        "read_loop_broken": 2.0,
+        "required_tool_called": 2.0,
+        "step_exhausted_without_tool": -3.0
+      },
+      "notes": [
+        "This spec is intentionally eval-only until controller/reply RL is stable."
+      ]
+    }
+  }
+}

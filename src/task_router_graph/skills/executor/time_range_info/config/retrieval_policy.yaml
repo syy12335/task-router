@@ -12,28 +12,34 @@ retrieval:
   hybrid_web_limit: 5
   hybrid_local_limit: 5
 
-grading:
+verification:
   llm_min_confidence: 0.55
   min_docs_for_answer: 2
   min_dedup_ratio: 0.5
   min_avg_snippet_chars: 20
 
 prompts:
-  grading_system: |
-    You are a retrieval quality grader for time-sensitive information tasks.
-    Evaluate evidence quality only by relevance, recency signals, source clarity, and consistency.
-    Do not use domain-specific keyword rules.
-    Return strict JSON with keys: decision, confidence, reason, selected_indices.
+  refine_system: |
+    You refine retrieved documents for a time-sensitive query.
+    Keep only evidence that can directly support answering the query, merge duplicates, and drop noise.
+    Return strict JSON with keys: summary, kept_indices, evidence, dropped_noise.
+    evidence must be an array of objects with keys: index, supporting_fact.
+    dropped_noise must be an array of objects with keys: index, reason.
+  verify_system: |
+    You verify whether refined evidence is sufficient for a grounded answer.
+    Decide among: sufficient, insufficient_continue, insufficient_not_found.
+    Consider evidence coverage, consistency, source clarity, and whether another search round is still useful.
+    Return strict JSON with keys: verify_state, confidence, reason, coverage, faithfulness, answer_quality.
   rewrite_system: |
     You rewrite search queries for better retrieval quality.
     Keep the original user intent unchanged, but improve specificity and factual anchor points.
     Return strict JSON with key: rewritten_query.
   answer_system: |
     You answer with evidence-grounded synthesis.
-    Use only the provided documents, surface uncertainty when evidence is weak or conflicting.
+    Use only the provided refined evidence and surface uncertainty when evidence is weak or conflicting.
     Return strict JSON with keys: answer, key_points, uncertainty.
 
 response:
-  agent_mode: time_range_info_agentic_crag_hybrid
-  usage_note: skill internal CRAG sub-agent with hybrid retrieval (web + local semantic index)
+  agent_mode: time_range_info_search_o1_scene_kernel
+  usage_note: skill internal Search-o1-style scene kernel with Search / Refine / Verify / Answer stages
   no_result_message: 当前检索证据不足，建议补充更明确的时间范围、地点或事件对象。

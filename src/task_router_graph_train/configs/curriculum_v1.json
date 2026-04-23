@@ -1,0 +1,73 @@
+{
+  "version": "v1.0.0",
+  "goal": "让模型稳定读懂正式 environment/task/round/track 机制，并在 controller/reply 两个角色上做出正确动作与状态语义。",
+  "stages": [
+    {
+      "stage_id": "P0",
+      "name": "状态机理解",
+      "focus": [
+        "running/done/failed 语义边界",
+        "source task 与 pyskill_task 链接",
+        "view vs full state 区分"
+      ],
+      "controller_mix": {
+        "failed_retry": 0.2,
+        "async_status": 0.3,
+        "history_noise": 0.2,
+        "direct_generate": 0.3
+      },
+      "reply_mix": {
+        "status_queries": 0.5,
+        "completion_sync": 0.3,
+        "done_summary": 0.2
+      }
+    },
+    {
+      "stage_id": "P1",
+      "name": "失败重试与异步回填",
+      "focus": [
+        "previous_failed_track",
+        "retry reply timing",
+        "collect_workflows 和 pre_reply_collect 的结果解释"
+      ],
+      "controller_mix": {
+        "failed_retry": 0.4,
+        "async_status": 0.35,
+        "history_noise": 0.15,
+        "direct_generate": 0.1
+      },
+      "reply_mix": {
+        "status_queries": 0.45,
+        "completion_sync": 0.35,
+        "done_summary": 0.2
+      }
+    },
+    {
+      "stage_id": "P2",
+      "name": "长历史与压缩视图稳健性",
+      "focus": [
+        "history_summaries/history_meta_summary 只作弱事实源",
+        "压缩视图下的状态判断",
+        "避免 sidecar 泄漏"
+      ],
+      "controller_mix": {
+        "failed_retry": 0.4,
+        "async_status": 0.25,
+        "history_noise": 0.2,
+        "direct_generate": 0.15
+      },
+      "reply_mix": {
+        "status_queries": 0.5,
+        "completion_sync": 0.3,
+        "done_summary": 0.2
+      }
+    }
+  ],
+  "gates": {
+    "controller_next_action_accuracy_min": 0.9,
+    "controller_env_fact_ignored_rate_max": 0.08,
+    "reply_status_semantic_accuracy_min": 0.95,
+    "reply_hallucination_rate_max": 0.02,
+    "graph_deterministic_required": 1.0
+  }
+}

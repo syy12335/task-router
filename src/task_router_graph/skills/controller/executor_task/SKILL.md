@@ -21,7 +21,7 @@ allowed-tools: []
 
 当 `USER_INPUT` 已指向 executor，但 `task_content` 仍不足时：
 
-1. 状态追问特例：若 `TASKS_JSON` 已包含最近任务摘要，可直接 `generate_task(executor)`，无需强制 `read`。
+1. 状态追问特例：若 `ENVIRONMENT_JSON` 已包含最近任务摘要，可直接 `generate_task(executor)`，无需强制 `read`。
 2. 非状态追问：第一优先级是 `read {"path":"src/task_router_graph/skills/controller/executor_task/SKILL.md"}`。
 3. 历史事实优先使用当前 environment：`build_context_view`。
 4. 失败重试优先：`previous_failed_track {}`。

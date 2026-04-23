@@ -7,19 +7,27 @@ allowed-tools: ["web_search"]
 ---
 # 时间段信息查询（通用时效资讯）
 
-本 skill 以 `pyskill` 方式运行，内部使用 **Agentic CRAG + 混合检索子代理**：
+本 skill 以 `pyskill` 方式运行，内部采用 `Search / Refine / Verify / Answer` 四段结构：
 
-- 初始检索（bootstrap retrieval）
-- 本地语义索引构建（local semantic index）
-- 混合召回（web + local semantic）
-- 相关性评估（LLM grader + heuristic guardrail）
-- 证据不足时 query rewrite 后继续检索
-- 证据充分后 synthesis 输出
+- `Search`
+  - bootstrap retrieval
+  - local semantic index
+  - hybrid retrieve
+- `Refine`
+  - 候选文档去噪
+  - 证据抽取与合并
+- `Verify`
+  - `sufficient`
+  - `insufficient_continue`
+  - `insufficient_not_found`
+- `Answer`
+  - 只基于 refine 后 evidence 生成答案
 
 实现文档与策略配置：
 
-- `time_range_info worker graph` 说明（非主 `graph.py`）：`docs/graph_flow.md`
-- 检索策略配置：`config/retrieval_policy.yaml`
+- worker graph 说明：`docs/graph_flow.md`
+- 检索与阶段 prompt 配置：`config/retrieval_policy.yaml`
+- 训练契约：`training/`
 
 ## 必须顺序
 
@@ -33,21 +41,24 @@ allowed-tools: ["web_search"]
 
 ## 执行步骤
 
-1. 获取北京时间，读取 `date`（必要时结合 `iso`）作为当前时间锚点。
-2. 将相对时间词（最近 N 天、上周、本周、未来 N 天）转成绝对日期范围。
-3. 构造检索 query：包含主题词 + 日期线索 + 地域/对象。
-4. 在 `task_result` 中明确写出：
-   - 查询时间范围（绝对日期）
-   - 关键结论
-   - 不确定性提示（请以官方发布为准）
+1. 获取北京时间，读取 `date`，必要时结合 `iso` 作为当前时间锚点。
+2. 将相对时间词转成绝对日期范围。
+3. 构造检索 query：主题词 + 日期线索 + 地域/对象。
+4. 调用 `web_search`。
+5. 在 `task_result` 中读取：
+   - `answer`
+   - `uncertainty`
+   - `evidence`
+   - `verify_state`
+   - `trace`
 
-## 失败止损（强制）
+## 失败止损
 
-- 若达到最大迭代轮次后证据仍不足：立即 `finish`。
-- 若出现脚本失败、超时、配置错误：立即 `finish` 并给出诊断信息。
-- 失败返回应包含：已锚定的绝对日期范围、已尝试的检索方向、建议补充更具体对象。
+- 达到最大迭代轮次且 `verify_state` 仍非 `sufficient`：立即结束。
+- `verify_state=insufficient_not_found`：立即结束。
+- 脚本失败、超时、配置错误：立即结束并返回诊断信息。
 
 ## 完成判定
 
-- `done`：已完成时间锚定 + 证据检索 + 结论整合
-- `failed`：关键输入缺失或证据不足无法给出可靠结论
+- `done`：完成时间锚定、Search / Refine / Verify / Answer 闭环
+- `failed`：关键输入缺失、证据不足、或运行失败
