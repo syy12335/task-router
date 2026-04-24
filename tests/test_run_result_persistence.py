@@ -27,8 +27,8 @@ def _build_result() -> SimpleNamespace:
         round_id=round_item.round_id,
         track=[],
         task=Task(type="executor", content="demo", status="done", result="ok"),
-        reply="done",
     )
+    environment.set_round_reply(round_id=round_item.round_id, reply="done")
     token_usage = empty_token_usage_summary()
     token_usage["total_tokens"] = 42
     token_usage["input_tokens"] = 30

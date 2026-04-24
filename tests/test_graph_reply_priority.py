@@ -28,7 +28,6 @@ def _build_reply_state(*, user_input: str) -> tuple[Environment, Task]:
             status="running",
             result="正在执行",
         ),
-        reply="",
     )
     return environment, task_record.task
 

@@ -957,7 +957,6 @@ def update_node(
     controller_trace: list[ControllerAction],
     agent_track: list[dict[str, Any]],
     task: Task,
-    reply: str,
 ) -> Environment:
     track = _controller_trace_to_track(controller_trace)
     for step in agent_track:
@@ -968,7 +967,6 @@ def update_node(
         round_id=round_id,
         track=track,
         task=task,
-        reply=reply,
     )
     return environment
 

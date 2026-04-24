@@ -529,6 +529,10 @@ class TaskRouterGraph:
                 }
             )
             reply = patched_reply
+        state["environment"].set_round_reply(
+            round_id=int(state.get("round_id", 0)),
+            reply=reply,
+        )
         return {
             "reply": reply,
         }
@@ -540,7 +544,6 @@ class TaskRouterGraph:
             state["controller_trace"],
             state.get("agent_track", []),
             state["task"],
-            state["reply"],
         )
 
         failed_retry_count = int(state.get("failed_retry_count", 0))
@@ -928,7 +931,6 @@ class TaskRouterGraph:
                 }
             ],
             task=pyskill_task,
-            reply="",
         )
         self._link_source_task_to_pyskill(
             environment=environment,
@@ -1271,6 +1273,9 @@ class TaskRouterGraph:
         for round_item in rolled_rounds:
             lines.append(f"round#{round_item.round_id}")
             lines.append(f"user_input: {str(round_item.user_input).strip()}")
+            round_reply = self._short_text(str(round_item.reply).strip(), max_len=160)
+            if round_reply:
+                lines.append(f"reply: {round_reply}")
             if not round_item.tasks:
                 lines.append("tasks: none")
                 continue
@@ -1280,14 +1285,11 @@ class TaskRouterGraph:
                 task_status = str(task_item.task.status).strip()
                 task_content = self._short_text(str(task_item.task.content).strip(), max_len=120)
                 task_result = _short_text_for_rollup(str(task_item.task.result).strip(), max_len=280)
-                task_reply = self._short_text(str(task_item.reply).strip(), max_len=160)
                 lines.append(
                     f"- task#{task_item.task_id} type={task_type} status={task_status} content={task_content}"
                 )
                 if task_result:
                     lines.append(f"  result: {task_result}")
-                if task_reply:
-                    lines.append(f"  reply: {task_reply}")
         return "\n".join(lines).strip()
 
     def _summarize_rollup_text_with_llm(

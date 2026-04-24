@@ -16,11 +16,10 @@ def _safe_int(value: Any, default: int = 0) -> int:
 
 @dataclass
 class TaskRecord:
-    # round 内的单任务记录：完整轨迹 -> 执行任务 -> 回复。
+    # round 内的单任务记录：完整轨迹 -> 执行任务。
     task_id: int
     track: list[dict[str, Any]]
     task: Task
-    reply: str
 
     @classmethod
     def from_dict(cls, payload: dict[str, Any]) -> "TaskRecord":
@@ -47,7 +46,6 @@ class TaskRecord:
             task_id=_safe_int(payload.get("task_id", 0) or 0, 0),
             track=track,
             task=Task.from_dict(task_payload),
-            reply=str(payload.get("reply", "")),
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -55,5 +53,4 @@ class TaskRecord:
             "task_id": self.task_id,
             "track": [dict(item) for item in self.track if isinstance(item, dict)],
             "task": self.task.to_dict(),
-            "reply": self.reply,
         }

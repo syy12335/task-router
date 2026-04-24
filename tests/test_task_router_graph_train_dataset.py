@@ -62,6 +62,7 @@ def test_build_controller_state_input_uses_runtime_shape() -> None:
             {
                 "round_id": 1,
                 "user_input": "继续",
+                "reply": "",
                 "tasks": [
                     {
                         "task_id": 1,
@@ -72,7 +73,6 @@ def test_build_controller_state_input_uses_runtime_shape() -> None:
                             "status": "failed",
                             "result": "executor failed\n[失败分析] 下一轮直接调用web_search",
                         },
-                        "reply": "",
                         "track": [{"agent": "diagnoser", "event": "analyze"}],
                     }
                 ],
@@ -100,6 +100,7 @@ def test_build_controller_state_input_supports_compressed_view() -> None:
             {
                 "round_id": 2,
                 "user_input": "继续",
+                "reply": "y" * 300,
                 "tasks": [
                     {
                         "task_id": 1,
@@ -110,7 +111,6 @@ def test_build_controller_state_input_supports_compressed_view() -> None:
                             "status": "done",
                             "result": "x" * 600,
                         },
-                        "reply": "y" * 300,
                         "track": [],
                     }
                 ],
@@ -124,5 +124,5 @@ def test_build_controller_state_input_supports_compressed_view() -> None:
         compress=True,
         compress_target_tokens=80,
     )
-    payload_text = str(state_input["ENVIRONMENT_JSON"]["tasks"][0]["task"]["result"])
+    payload_text = str(state_input["ENVIRONMENT_JSON"]["rounds"][0]["tasks"][0]["task"]["result"])
     assert "[COMPACTED_VIEW]" in payload_text

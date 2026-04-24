@@ -53,7 +53,7 @@ runtime environment full state
 - `runtime environment full state`
   - 对应运行时真实状态，schema 在 `src/task_router_graph/schema/environment.py`
   - 包含 `rounds / cur_round / updated_at / history_summaries / history_meta_summary`
-  - 每个 round 下有 task、reply、track；这是可回放、可审计的 full state
+  - `reply` 是 round 级字段，task 仅保留 task/track；这是可回放、可审计的 full state
 - `formal_environment`
   - 由 `sanitize_environment_payload(...)` 从 raw environment 切出来
   - 只保留正式 schema 字段，允许进入模型输入

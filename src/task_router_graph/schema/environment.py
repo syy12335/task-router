@@ -106,7 +106,7 @@ class Environment:
     def start_round(self, *, user_input: str) -> RoundRecord:
         # Use max(round_id)+1 instead of len+1 so manual edits / gaps do not break id monotonicity.
         next_round_id = self._next_round_id()
-        round_item = RoundRecord(round_id=next_round_id, user_input=user_input, tasks=[])
+        round_item = RoundRecord(round_id=next_round_id, user_input=user_input, reply="", tasks=[])
         self.rounds.append(round_item)
         self.cur_round = round_item.round_id
         self.updated_at = _now_iso()
@@ -119,7 +119,6 @@ class Environment:
         round_id: int,
         track: list[dict[str, Any]],
         task: Task,
-        reply: str,
     ) -> TaskRecord:
         round_item = self._get_round_or_raise(round_id)
 
@@ -133,7 +132,6 @@ class Environment:
             task_id=next_task_id,
             track=track_copy,
             task=task_copy,
-            reply=reply,
         )
         round_item.tasks.append(record)
 
@@ -152,9 +150,20 @@ class Environment:
             "round_id": round_item.round_id,
             "task_id": task_item.task_id,
             "task": task_item.task.to_dict(),
-            "reply": task_item.reply,
+            "reply": round_item.reply,
             "track": _clone_track(task_item.track),
         }
+
+    def set_round_reply(self, *, round_id: int, reply: str) -> bool:
+        if int(round_id) <= 0:
+            return False
+        for round_item in self.rounds:
+            if int(round_item.round_id) != int(round_id):
+                continue
+            round_item.reply = str(reply)
+            self.updated_at = _now_iso()
+            return True
+        return False
 
     def get_current_failed_task_context(self) -> dict[str, Any] | None:
         """Return context only when the current last task is failed (immediate retry scene)."""
@@ -281,8 +290,8 @@ class Environment:
                         continue
                     if str(task_payload.get("status", "")).strip().lower() == "failed":
                         task_payload["result"] = ""
-                        if "reply" in task_item:
-                            task_item["reply"] = ""
+                        if "reply" in round_item:
+                            round_item["reply"] = ""
 
         if previous_failed_context is None:
             return view
@@ -324,6 +333,7 @@ class Environment:
         for round_item in self.rounds:
             lines.append(f"round#{round_item.round_id}")
             lines.append(f"user_input: {round_item.user_input}")
+            lines.append(f"reply: {round_item.reply}")
             lines.append(f"round_task_count: {len(round_item.tasks)}")
 
             for task_item in round_item.tasks:
@@ -334,7 +344,6 @@ class Environment:
                     f"status={task_item.task.status}, "
                     f"result={task_item.task.result}"
                 )
-                lines.append(f"  reply: {task_item.reply}")
 
                 if show_trace:
                     lines.append(f"  track_count: {len(task_item.track)}")
@@ -392,6 +401,11 @@ class Environment:
             }
             if include_user_input:
                 round_payload["user_input"] = round_item.user_input
+            if include_reply:
+                reply_value = str(round_item.reply)
+                if compress:
+                    reply_value = _compact_text_value(reply_value, target_tokens=target_tokens)
+                round_payload["reply"] = reply_value
             tasks_payload: list[dict[str, object]] = []
             for task_item in round_item.tasks:
                 item: dict[str, object] = {
@@ -407,11 +421,6 @@ class Environment:
                     if compress:
                         task_payload["result"] = _compact_text_value(task_payload.get("result", ""), target_tokens=target_tokens)
                     item["task"] = task_payload
-                if include_reply:
-                    reply_value = str(task_item.reply)
-                    if compress:
-                        reply_value = _compact_text_value(reply_value, target_tokens=target_tokens)
-                    item["reply"] = reply_value
                 tasks_payload.append(item)
             round_payload["tasks"] = tasks_payload
             rounds_payload.append(round_payload)
@@ -436,7 +445,6 @@ class Environment:
                 item: dict[str, object] = {
                     "task_id": task_item.task_id,
                     "task": task_item.task.to_dict(),
-                    "reply": task_item.reply,
                 }
                 if include_trace:
                     item["track"] = _clone_track(task_item.track)
@@ -446,6 +454,7 @@ class Environment:
                 {
                     "round_id": round_item.round_id,
                     "user_input": round_item.user_input,
+                    "reply": round_item.reply,
                     "tasks": tasks_payload,
                 }
             )

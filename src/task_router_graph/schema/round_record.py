@@ -18,6 +18,7 @@ class RoundRecord:
     # environment 顶层单元：一次用户输入对应一个 round，可包含多个 task。
     round_id: int
     user_input: str
+    reply: str = ""
     tasks: list[TaskRecord] = field(default_factory=list)
 
     @classmethod
@@ -27,6 +28,7 @@ class RoundRecord:
         return cls(
             round_id=_safe_int(payload.get("round_id", 0) or 0, 0),
             user_input=str(payload.get("user_input", "")),
+            reply=str(payload.get("reply", "")),
             tasks=tasks,
         )
 
@@ -34,5 +36,6 @@ class RoundRecord:
         return {
             "round_id": self.round_id,
             "user_input": self.user_input,
+            "reply": self.reply,
             "tasks": [task.to_dict() for task in self.tasks],
         }
