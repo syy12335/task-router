@@ -254,6 +254,8 @@ PYTHONPATH=src python -m task_router_graph_train.cli.evaluate \
   - teacher_source、TrainingRecord、feedback manifest 和 badcase 回流契约
 - `eval_spec.md`
   - holdout evaluator、controller regression、coverage 面板与失败回流
+- `controller_grpo_reward_spec.md`
+  - controller-only `GRPO` reward 正式口径
 - `training_plan_v1.md`
   - controller-only v1 训练路线与非目标
 
@@ -270,7 +272,13 @@ PYTHONPATH=src python -m task_router_graph_train.cli.evaluate \
 - 不把 reward model、critic、checkpoint 恢复训练写成当前版本能力
 - 不鼓励直接从散落 jsonl 路径启动训练入口
 
-## 当前 reward 映射
+## 当前 reward 口径
+
+controller-only `GRPO` 的正式 reward 规范见：
+
+- `src/task_router_graph_train/docs/controller_grpo_reward_spec.md`
+
+当前实现仍支持兼容性的 ranking-only fallback：
 
 `reward_judge` 可以返回：
 

@@ -134,6 +134,7 @@ PYTHONPATH=src python -m task_router_graph_train.cli.harvest_failed_badcases \
 
 - `reward_judge`
   - 只服务 GRPO reward manager
+  - 正式口径见 `controller_grpo_reward_spec.md`
 - `reference_generator`
   - 只服务 badcase -> reference_action
 - `regression_judge`

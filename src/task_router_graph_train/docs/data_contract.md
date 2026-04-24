@@ -220,10 +220,8 @@ manifest 关键字段包括：
 补充约定：
 
 - `extra_info.controller_state_view` 必须存在，或明确被视为 legacy dataset
-- 如果 `teacher` 只返回 `ranking`，当前 reward 映射规则为：
-  - 候选数为 1：`1.0`
-  - 候选数为 `N > 1`：第 `rank_index` 名的 reward =
-    `(N - 1 - rank_index) / (N - 1)`
+- controller `GRPO` 的正式 reward 口径见 `controller_grpo_reward_spec.md`
+- 如果 `teacher` 只返回 `ranking`，当前实现仍保留线性映射 fallback，作为兼容路径而非正式 spec
 
 文档和 notebook 都应避免把这两者混成一个概念。
 

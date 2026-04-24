@@ -198,10 +198,8 @@ v1 要解决的是 controller-only 的一条稳闭环：
 - 输入：同组 rollout candidates
 - 输出：每个 response 的 scalar reward
 - 不做：生成 `reference_action`
-- 若只返回 `ranking`，当前实现按线性规则映射成 reward：
-  - 候选数为 1：`1.0`
-  - 候选数为 `N > 1`：第 `rank_index` 名的 reward =
-    `(N - 1 - rank_index) / (N - 1)`
+- 正式口径见 `controller_grpo_reward_spec.md`
+- 当前实现仍保留 ranking-only 的线性映射 fallback，作为兼容路径而非正式 spec
 
 ### reference_generator
 

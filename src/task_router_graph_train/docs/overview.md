@@ -28,6 +28,10 @@
 - 三路 teacher 职责分离
 - badcase 回流闭环
 
+controller `GRPO` 的正式 reward 口径见：
+
+- `src/task_router_graph_train/docs/controller_grpo_reward_spec.md`
+
 ## 模块结构
 
 - `runtime_adapter.py`
@@ -67,7 +71,8 @@ unsafe direct path 仍然保留，但必须显式打开：
 当前配置中的 teacher 已经拆成三路，不能混用成一个职责：
 
 - `reward_judge`
-  - 给同组 rollout candidates 打 per-response scalar reward
+  - 负责 controller `GRPO` 的 reward 判断
+  - 正式口径见 `controller_grpo_reward_spec.md`
 - `reference_generator`
   - 针对 badcase 生成 `reference_action`
 - `regression_judge`
