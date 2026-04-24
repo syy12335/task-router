@@ -25,6 +25,38 @@ from task_router_graph_train.train.controller_grpo_teacher import (
 )
 
 
+def _write_minimal_controller_records(tmp_path: Path) -> tuple[Path, Path]:
+    train_records = tmp_path / "train_records.jsonl"
+    eval_records = tmp_path / "eval_records.jsonl"
+    base_row = {
+        "sample_id": "ctrl_001",
+        "role": "controller",
+        "split": "train",
+        "state_input": {
+            "USER_INPUT": "u",
+            "ENVIRONMENT_JSON": {"cur_round": 1, "rounds": []},
+            "SKILLS_INDEX": "[]",
+        },
+        "gold_output": {
+            "action_kind": "generate_task",
+            "reason": "创建任务",
+            "task_type": "functest",
+            "task_content": "用户目标：执行登录流程功能测试\n任务限制：覆盖主流程，不猜测未提供的外部事实",
+        },
+        "verifier_sidecar": {},
+        "reward_spec_id": "controller_v1",
+        "metadata": {
+            "controller_state_view": {"compress": False, "compress_target_tokens": None},
+        },
+    }
+    train_records.write_text(json.dumps(base_row, ensure_ascii=False) + "\n", encoding="utf-8")
+    eval_row = dict(base_row)
+    eval_row["sample_id"] = "ctrl_002"
+    eval_row["split"] = "eval"
+    eval_records.write_text(json.dumps(eval_row, ensure_ascii=False) + "\n", encoding="utf-8")
+    return train_records, eval_records
+
+
 def test_validate_controller_action_for_observe_and_generate_task() -> None:
     observe_ok, observe_errors = validate_controller_action(
         {
@@ -128,26 +160,22 @@ def test_training_and_teacher_action_validators_share_runtime_contract() -> None
         assert train_valid == teacher_valid
 
 
-def test_build_grpo_rollout_groups_is_debug_only_helper() -> None:
-    records, _ = build_controller_train_records(
-        teacher_source_dir=ASSETS_ROOT / "sft_v1" / "teacher_source",
-        workspace_root=REPO_ROOT,
-    )
-    groups = build_grpo_rollout_groups(records=records, num_candidates=4, seed=7)
-    assert len(groups) == len(records)
-    first = groups[0]
-    assert len(first["candidates"]) == 4
-    assert first["candidates"][0]["source"] == "gold"
-    assert "raw_text" in first["candidates"][0]
-    assert first["candidates"][0]["sampling_metadata"]["rollout_mode"] == "debug_gold_mutate"
+def test_build_grpo_rollout_groups_is_removed_from_reference_free_path() -> None:
+    with pytest.raises(ValueError, match="reference-free GRPO path"):
+        build_grpo_rollout_groups(records=[], num_candidates=4, seed=7)
 
 
 def test_validate_teacher_rankings_rejects_mismatch() -> None:
-    records, _ = build_controller_train_records(
-        teacher_source_dir=ASSETS_ROOT / "sft_v1" / "teacher_source",
-        workspace_root=REPO_ROOT,
-    )
-    groups = build_grpo_rollout_groups(records=records[:1], num_candidates=3, seed=13)
+    groups = [
+        {
+            "group_id": "group_00001_ctrl_001",
+            "candidates": [
+                {"candidate_id": "cand_00"},
+                {"candidate_id": "cand_01"},
+                {"candidate_id": "cand_02"},
+            ],
+        }
+    ]
     ranking_rows = [
         {
             "group_id": groups[0]["group_id"],
@@ -294,12 +322,9 @@ def test_default_online_config_values() -> None:
     assert config["rollout"]["backend"] == "sglang"
     assert config["teacher"]["mode"] == "online"
     assert config["teacher"]["reward_judge"]["mode"] == "online"
-    assert config["teacher"]["reference_generator"]["rubric_id"] == "controller_reference_generator_v1"
-    assert config["teacher"]["regression_judge"]["rubric_id"] == "controller_regression_judge_v1"
     assert config["update"]["backend"] == "verl"
     assert config["update"]["adv_estimator"] == "grpo"
     assert config["controller_state_view"] == {"compress": False, "compress_target_tokens": None}
-    assert config["debug"]["allow_gold_mutate"] is False
     assert config["debug"]["allow_oracle_file_teacher"] is False
 
 
@@ -316,11 +341,13 @@ def test_train_controller_grpo_export_only_uses_default_online_path(
     monkeypatch.setattr(controller_grpo_module, "build_teacher_rankings", should_not_call)
 
     output_dir = tmp_path / "grpo_out"
+    train_records, eval_records = _write_minimal_controller_records(tmp_path)
     report = train_controller_grpo(
         output_dir=output_dir,
         config_path=DEFAULT_GRPO_CONFIG_PATH,
-        teacher_source_dir=ASSETS_ROOT / "sft_v1" / "teacher_source",
-        runtime_root=REPO_ROOT,
+        train_records=train_records,
+        eval_records=eval_records,
+        allow_unsafe_path_input=True,
         model_name_or_path="/tmp/mock-policy",
         export_only=True,
     )
@@ -346,6 +373,7 @@ def test_train_controller_grpo_export_only_uses_default_online_path(
     assert extra_info["num_candidates"] == report["num_candidates"]
     assert extra_info["teacher_context"]["mode"] == "online"
     assert extra_info["controller_state_view"] == {"compress": False, "compress_target_tokens": None}
+    assert "gold_output" not in extra_info
     assert report["controller_state_view"] == {"compress": False, "compress_target_tokens": None}
     assert report["input_controller_state_view"] == {"compress": False, "compress_target_tokens": None}
     assert report["input_controller_state_view_legacy"] is False
@@ -366,11 +394,13 @@ def test_train_controller_grpo_directly_launches_verl(
     monkeypatch.setattr(controller_grpo_module.importlib.util, "find_spec", lambda name: object() if name == "verl" else None)
     monkeypatch.setattr(controller_grpo_module.subprocess, "run", fake_run)
 
+    train_records, eval_records = _write_minimal_controller_records(tmp_path)
     report = train_controller_grpo(
         output_dir=tmp_path / "grpo_direct",
         config_path=DEFAULT_GRPO_CONFIG_PATH,
-        teacher_source_dir=ASSETS_ROOT / "sft_v1" / "teacher_source",
-        runtime_root=REPO_ROOT,
+        train_records=train_records,
+        eval_records=eval_records,
+        allow_unsafe_path_input=True,
         model_name_or_path="/tmp/mock-policy",
         run_verl_update=True,
     )

@@ -4,7 +4,6 @@ import copy
 import importlib.util
 import json
 import os
-import random
 import subprocess
 import sys
 from pathlib import Path
@@ -19,7 +18,7 @@ from ..artifacts import (
     resolve_named_asset,
     to_safe_path,
 )
-from ..dataset import build_controller_train_records, render_controller_prompt, render_controller_target_text, write_jsonl
+from ..dataset import build_controller_train_records, render_controller_prompt, write_jsonl
 from ..dataset.io import read_jsonl
 from ..runtime_adapter import (
     CONFIGS_ROOT,
@@ -51,42 +50,10 @@ def build_grpo_rollout_groups(
     records: list[TrainingRecord],
     num_candidates: int,
     seed: int,
-    rollout_mode: str = "debug_gold_mutate",
+    rollout_mode: str = "disabled",
 ) -> list[dict[str, Any]]:
-    if num_candidates < 2:
-        raise ValueError("num_candidates must be >= 2")
-
-    normalized_mode = str(rollout_mode).strip().lower() or "debug_gold_mutate"
-    if normalized_mode != "debug_gold_mutate":
-        raise ValueError(
-            "build_grpo_rollout_groups is a debug/audit helper only and currently supports rollout_mode=debug_gold_mutate"
-        )
-
-    rng = random.Random(seed)
-    groups: list[dict[str, Any]] = []
-    for index, record in enumerate(records, start=1):
-        if record.role != "controller":
-            continue
-        prompt_text = render_controller_prompt(record.state_input)
-        group_id = _build_group_id(index=index, sample_id=record.sample_id)
-        candidates = _build_debug_candidates_for_record(
-            record=record,
-            num_candidates=num_candidates,
-            rng=rng,
-            rollout_mode=normalized_mode,
-        )
-        groups.append(
-            {
-                "group_id": group_id,
-                "sample_id": record.sample_id,
-                "split": record.split,
-                "prompt": prompt_text,
-                "state_input": copy.deepcopy(record.state_input),
-                "metadata": copy.deepcopy(record.metadata),
-                "candidates": candidates,
-            }
-        )
-    return groups
+    del records, num_candidates, seed, rollout_mode
+    raise ValueError("build_grpo_rollout_groups has been removed from the reference-free GRPO path")
 
 
 def build_teacher_rankings(
@@ -314,16 +281,7 @@ def train_controller_grpo(
 
     audit_paths: dict[str, str] = {}
     if bool(effective_config.get("audit", {}).get("export_rollout_preview", False)):
-        if not bool(effective_config.get("debug", {}).get("allow_gold_mutate", False)):
-            raise ValueError("audit.export_rollout_preview requires debug.allow_gold_mutate=true")
-        preview_groups = build_grpo_rollout_groups(
-            records=controller_records,
-            num_candidates=int(effective_config["rollout"]["num_candidates"]),
-            seed=int(effective_config.get("seed", seed)),
-        )
-        preview_path = output_dir / "grpo_rollout_groups.debug.jsonl"
-        write_jsonl(preview_path, preview_groups)
-        audit_paths["rollout_preview_path"] = to_safe_path(preview_path)
+        raise ValueError("audit.export_rollout_preview is not supported in the reference-free GRPO path")
 
     overrides = _build_verl_overrides(
         config=effective_config,
@@ -540,6 +498,7 @@ def _resolve_grpo_input_artifacts(
                 train_path=Path(str(asset["train_path"])).resolve(),
                 eval_path=Path(str(asset["eval_path"])).resolve(),
             )
+            controller_records = _strip_reference_from_training_records(controller_records)
             manifest_state_view = _normalize_optional_controller_state_view(asset.get("controller_state_view"))
             record_state_view = _extract_controller_state_view_from_training_records(controller_records)
             return {
@@ -588,6 +547,7 @@ def _resolve_grpo_input_artifacts(
             train_path=Path(train_records).resolve(),
             eval_path=Path(eval_records).resolve(),
         )
+        controller_records = _strip_reference_from_training_records(controller_records)
         return {
             "dataset_mode": CONTROLLER_TRAINING_RECORDS_ARTIFACT_TYPE,
             "controller_records": controller_records,
@@ -607,7 +567,9 @@ def _resolve_grpo_input_artifacts(
         workspace_root=repo_root,
         controller_state_view=controller_state_view,
     )
-    controller_records = [record for record in records if record.role == "controller"]
+    controller_records = _strip_reference_from_training_records(
+        [record for record in records if record.role == "controller"]
+    )
     return {
         "dataset_mode": CONTROLLER_TRAINING_RECORDS_ARTIFACT_TYPE,
         "controller_records": controller_records,
@@ -624,6 +586,24 @@ def _load_training_records_from_jsonl(*, train_path: Path, eval_path: Path) -> l
         for row in read_jsonl(path):
             rows.append(_training_record_from_row(row=row, source_path=path, expected_split=split))
     return rows
+
+
+def _strip_reference_from_training_records(records: list[TrainingRecord]) -> list[TrainingRecord]:
+    sanitized: list[TrainingRecord] = []
+    for record in records:
+        sanitized.append(
+            TrainingRecord(
+                sample_id=record.sample_id,
+                role=record.role,
+                state_input=copy.deepcopy(record.state_input),
+                gold_output={},
+                verifier_sidecar=copy.deepcopy(record.verifier_sidecar),
+                reward_spec_id=record.reward_spec_id,
+                split=record.split,
+                metadata=copy.deepcopy(record.metadata),
+            )
+        )
+    return sanitized
 
 
 def _training_record_from_row(*, row: dict[str, Any], source_path: Path, expected_split: str) -> TrainingRecord:
@@ -645,7 +625,7 @@ def _training_record_from_row(*, row: dict[str, Any], source_path: Path, expecte
         sample_id=sample_id,
         role=role,
         state_input=copy.deepcopy(state_input),
-        gold_output=copy.deepcopy(row.get("gold_output", {})) if isinstance(row.get("gold_output", {}), dict) else {},
+        gold_output={},
         verifier_sidecar=_coerce_verifier_sidecar(row.get("verifier_sidecar", {})),
         reward_spec_id=str(row.get("reward_spec_id", "")),
         split=split,
@@ -737,7 +717,6 @@ def _write_verl_rl_dataset(
                 "teacher_context": copy.deepcopy(teacher_context),
                 "controller_state_view": copy.deepcopy(controller_state_view),
                 "metadata": copy.deepcopy(record.metadata),
-                "gold_output": copy.deepcopy(record.gold_output),
             },
         }
         if record.split == "eval":
@@ -1004,96 +983,6 @@ def _run_holdout_monitoring(
 
 def _build_group_id(*, index: int, sample_id: str) -> str:
     return f"group_{index:05d}_{sample_id}"
-
-
-def _build_debug_candidates_for_record(
-    *,
-    record: TrainingRecord,
-    num_candidates: int,
-    rng: random.Random,
-    rollout_mode: str,
-) -> list[dict[str, Any]]:
-    gold = copy.deepcopy(record.gold_output)
-    candidates: list[dict[str, Any]] = []
-
-    def append_candidate(action: dict[str, Any], *, source: str) -> None:
-        candidate_id = f"cand_{len(candidates):02d}"
-        valid, errors = validate_controller_action(action)
-        candidates.append(
-            {
-                "candidate_id": candidate_id,
-                "source": source,
-                "raw_text": render_controller_target_text(action),
-                "action": copy.deepcopy(action),
-                "sampling_metadata": {
-                    "rollout_mode": rollout_mode,
-                    "candidate_index": len(candidates),
-                },
-                "is_valid": valid,
-                "validation_errors": errors,
-            }
-        )
-
-    append_candidate(gold, source="gold")
-    while len(candidates) < num_candidates:
-        append_candidate(_mutate_action(gold, rng=rng), source="mutation")
-    return candidates
-
-
-def _mutate_action(action: dict[str, Any], *, rng: random.Random) -> dict[str, Any]:
-    kind = str(action.get("action_kind", "")).strip()
-    mutated = copy.deepcopy(action)
-    if kind == "observe":
-        variants = [
-            {
-                "action_kind": "generate_task",
-                "reason": "忽略 running 语义直接起新任务。",
-                "task_type": "functest",
-                "task_content": "重复执行功能测试",
-            },
-            {
-                "action_kind": "observe",
-                "reason": "继续观察，但未明确推进条件。",
-                "tool": "build_context_view",
-                "args": {"round_limit": 3, "include_trace": False, "include_user_input": True, "include_task": True, "include_reply": True},
-            },
-            {
-                "action_kind": "observe",
-                "reason": "虚构状态：系统已经完成全部任务。",
-                "tool": "build_context_view",
-                "args": {"round_limit": 3, "include_trace": False, "include_user_input": True, "include_task": True, "include_reply": True},
-            },
-        ]
-        return copy.deepcopy(rng.choice(variants))
-    if kind == "generate_task":
-        variants = [
-            {
-                "action_kind": "observe",
-                "reason": "先读一下，但忽略了当前应新建任务。",
-                "tool": "build_context_view",
-                "args": {"round_limit": 3, "include_trace": False, "include_user_input": True, "include_task": True, "include_reply": True},
-            },
-            {
-                "action_kind": "generate_task",
-                "reason": "任务类型选择错误。",
-                "tool": None,
-                "args": {},
-                "task_type": "executor",
-                "task_content": str(action.get("task_content", "")) or "执行任务",
-            },
-            {
-                "action_kind": "generate_task",
-                "reason": "内容空洞，缺少环境事实。",
-                "tool": None,
-                "args": {},
-                "task_type": str(action.get("task_type", "")) or "functest",
-                "task_content": "继续处理",
-            },
-        ]
-        return copy.deepcopy(rng.choice(variants))
-    mutated["reason"] = "action_kind 非法，作为坏候选示例。"
-    mutated["action_kind"] = "invalid_kind"
-    return mutated
 
 
 def _normalize_optional_controller_state_view(payload: Any) -> dict[str, Any] | None:

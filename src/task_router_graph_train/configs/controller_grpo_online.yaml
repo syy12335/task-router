@@ -23,14 +23,6 @@ teacher:
     allow_missing_api_key: false
     ranking_path: ""
 
-  reference_generator:
-    <<: *reward_judge
-    rubric_id: controller_reference_generator_v1
-
-  regression_judge:
-    <<: *reward_judge
-    rubric_id: controller_regression_judge_v1
-
 rollout:
   backend: sglang
   num_candidates: 4
@@ -95,9 +87,7 @@ feedback:
   eval_ratio: 0.2
 
 debug:
-  allow_gold_mutate: false
   allow_oracle_file_teacher: false
-  rollout_mode: debug_gold_mutate
 
 audit:
   export_rollout_preview: false
