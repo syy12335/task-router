@@ -488,13 +488,15 @@ class TaskRouterGraph:
 
     def _reply_step(self, state: GraphState) -> GraphState:
         recent_workflow_events = list(state.get("recent_workflow_events", []))
+        user_input = str(state.get("user_input", "")).strip()
+        prioritize_workflow_events = self._is_status_query(user_input)
         reply = reply_node(
             llm=self._llm,
             reply_system=self._reply_system,
             environment=state["environment"],
-            user_input=state["user_input"],
+            user_input=user_input,
             task=state["task"],
-            workflow_events=recent_workflow_events,
+            workflow_events=recent_workflow_events if prioritize_workflow_events else [],
             invoke_config=self._build_llm_invoke_config(state=state, node="final_reply"),
             context_options=self._context_options,
             environment_context_compress=self._environment_context_compress,
@@ -502,6 +504,7 @@ class TaskRouterGraph:
         patched_reply = self._prepend_workflow_event_notice_if_missing(
             reply=reply,
             workflow_events=recent_workflow_events,
+            prepend=prioritize_workflow_events,
         )
         if patched_reply != reply:
             state["environment"].append_last_task_track(
@@ -1514,6 +1517,7 @@ class TaskRouterGraph:
         *,
         reply: str,
         workflow_events: list[dict[str, Any]],
+        prepend: bool = True,
     ) -> str:
         if not workflow_events:
             return reply
@@ -1533,12 +1537,15 @@ class TaskRouterGraph:
         workflow_type = str(primary.get("workflow_type", "pyskill")).strip() or "pyskill"
         result = str(primary.get("result", "")).strip()
         if status == "done":
-            prefix = f"补充进展：{workflow_type} 已完成（{pyskill_ref}）。"
+            notice = f"补充进展：{workflow_type} 已完成（{pyskill_ref}）。"
         else:
-            prefix = f"补充进展：{workflow_type} 执行失败（{pyskill_ref}）。"
+            notice = f"补充进展：{workflow_type} 执行失败（{pyskill_ref}）。"
         if result:
-            prefix = f"{prefix} 结果：{result}"
-        return f"{prefix}\n{reply}".strip()
+            notice = f"{notice} 结果：{result}"
+        if prepend:
+            return f"{notice}\n{reply}".strip()
+        follow_up = notice.removeprefix("补充进展：").strip()
+        return f"{reply}\n另外，{follow_up}".strip()
 
     def _is_status_query(self, user_input: str) -> bool:
         query = user_input.strip().lower()
