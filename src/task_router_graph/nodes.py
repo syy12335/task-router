@@ -280,7 +280,7 @@ class SkillToolRuntime:
                 workflow_type="pyskill",
                 tool_name=tool_name,
                 skill_name=str(active_skill.get("name", "")),
-                script_path=script_path,
+                script_path=script_path_abs,
                 cwd=str(active_skill.get("skill_dir_abs", self.workspace_root)),
                 input_payload=dict(input_payload),
             )
