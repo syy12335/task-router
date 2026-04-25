@@ -1,0 +1,49 @@
+{
+  "artifact_type": "post_training_round_v1",
+  "round_id": "round_0001",
+  "previous_round_id": "",
+  "created_at": "2026-04-25T08:48:26Z",
+  "updated_at": "2026-04-25T08:48:26Z",
+  "counts_by_split": {
+    "sft_train": 90,
+    "sft_eval": 30,
+    "grpo_train": 90,
+    "grpo_eval": 30,
+    "holdout": 80,
+    "sft_admissions": 0
+  },
+  "assets": {
+    "sft_examples_train": {
+      "artifact_type": "sft_examples_v1",
+      "path": "/root/WORK/task-rounting/src/task_router_graph_train/assets/post_training/rounds/round_0001/sft_examples_train.jsonl"
+    },
+    "sft_examples_eval": {
+      "artifact_type": "sft_examples_v1",
+      "path": "/root/WORK/task-rounting/src/task_router_graph_train/assets/post_training/rounds/round_0001/sft_examples_eval.jsonl"
+    },
+    "controller_records_train": {
+      "artifact_type": "controller_training_records_v1",
+      "path": "/root/WORK/task-rounting/src/task_router_graph_train/assets/post_training/rounds/round_0001/controller_records_train.jsonl"
+    },
+    "controller_records_eval": {
+      "artifact_type": "controller_training_records_v1",
+      "path": "/root/WORK/task-rounting/src/task_router_graph_train/assets/post_training/rounds/round_0001/controller_records_eval.jsonl"
+    },
+    "holdout_records": {
+      "artifact_type": "holdout_records_v1",
+      "path": "/root/WORK/task-rounting/src/task_router_graph_train/assets/post_training/rounds/round_0001/holdout_records.jsonl"
+    },
+    "teacher_queue": {
+      "artifact_type": "teacher_queue_v1",
+      "path": "/root/WORK/task-rounting/src/task_router_graph_train/assets/post_training/rounds/round_0001/teacher_queue.jsonl"
+    },
+    "sft_admissions": {
+      "artifact_type": "sft_admissions_v1",
+      "path": "/root/WORK/task-rounting/src/task_router_graph_train/assets/post_training/rounds/round_0001/sft_admissions.jsonl"
+    }
+  },
+  "lineage": {
+    "manual_protocol": "/root/WORK/task-rounting/src/task_router_graph_train/assets/manual_protocol_v1",
+    "previous_admissions": ""
+  }
+}
