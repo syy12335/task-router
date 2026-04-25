@@ -10,8 +10,14 @@ var/**
 !var/
 !var/logs/
 !var/runs/
+!var/reports/
+var/logs/**
+var/runs/**
+var/reports/**
 !var/logs/.gitkeep
 !var/runs/.gitkeep
+!var/reports/.gitkeep
+outputs/
 
 # Local editor
 .vscode/
