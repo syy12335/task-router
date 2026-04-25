@@ -5,11 +5,11 @@ round:
   previous_round_id: ""
 
 run:
-  sft: false
+  sft: true
   grpo_export_only: true
-  grpo_full_update: false
-  evaluate: false
-  annotate_queue: false
+  grpo_full_update: true
+  evaluate: true
+  annotate_queue: true
 
 outputs:
   sft_dir: var/runs/task_router_graph_train/sft/{round_id}
@@ -77,7 +77,7 @@ update:
   norm_adv_by_std_in_grpo: true
 
 model:
-  path: ""
+  path: /model/default/Qwen3.5-4B
   trust_remote_code: false
   lora_rank: 8
   lora_alpha: 16
@@ -101,6 +101,11 @@ controller_state_view:
 
 sft:
   total_epochs: 5
+  max_seq_length: 1024
+  bf16: true
+  fp16: false
+  gradient_checkpointing: true
+  torch_empty_cache_steps: 1
 
 feedback:
   auto_sft_confidence_threshold: 0.85
