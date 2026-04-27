@@ -185,6 +185,18 @@ def _build_training_arguments(
     return TrainingArguments(**kwargs)
 
 
+def _prepare_trainer_for_post_train_evaluate(trainer: Any) -> None:
+    try:
+        from transformers import ProgressCallback
+        from transformers.utils.notebook import NotebookProgressCallback
+    except Exception:
+        return
+
+    removed_callback = trainer.pop_callback(NotebookProgressCallback)
+    if removed_callback is not None:
+        trainer.add_callback(ProgressCallback)
+
+
 def _resolve_sft_input_paths(
     *,
     train_examples: Path | None,
@@ -760,6 +772,7 @@ def train_controller_sft(
     if eval_dataset is None:
         eval_metrics = {"eval_dataset_size": 0}
     else:
+        _prepare_trainer_for_post_train_evaluate(trainer)
         eval_metrics = dict(trainer.evaluate(eval_dataset=eval_dataset))
         eval_metrics["eval_dataset_size"] = len(eval_dataset)
 

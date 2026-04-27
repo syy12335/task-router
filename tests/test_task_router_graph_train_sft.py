@@ -102,3 +102,35 @@ def test_build_distributed_launch_command_uses_torchrun_module(tmp_path: Path) -
     assert "--distributed-worker" in command
     assert "--bf16" in command
     assert "--gradient-checkpointing" in command
+
+
+def test_prepare_trainer_for_post_train_evaluate_replaces_notebook_callback(monkeypatch) -> None:
+    class NotebookProgressCallback:
+        pass
+
+    class ProgressCallback:
+        pass
+
+    class FakeTrainer:
+        def __init__(self) -> None:
+            self.popped: list[object] = []
+            self.added: list[object] = []
+
+        def pop_callback(self, callback):  # type: ignore[no-untyped-def]
+            self.popped.append(callback)
+            return object()
+
+        def add_callback(self, callback):  # type: ignore[no-untyped-def]
+            self.added.append(callback)
+
+    notebook_module = type("NotebookModule", (), {"NotebookProgressCallback": NotebookProgressCallback})
+    transformers_module = type("TransformersModule", (), {"ProgressCallback": ProgressCallback})
+
+    monkeypatch.setitem(sys.modules, "transformers", transformers_module)
+    monkeypatch.setitem(sys.modules, "transformers.utils.notebook", notebook_module)
+
+    trainer = FakeTrainer()
+    controller_sft._prepare_trainer_for_post_train_evaluate(trainer)
+
+    assert trainer.popped == [NotebookProgressCallback]
+    assert trainer.added == [ProgressCallback]
