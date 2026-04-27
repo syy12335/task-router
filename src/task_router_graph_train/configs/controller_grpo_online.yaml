@@ -1,27 +1,27 @@
-# Single source of truth for the controller post-training runbook.
-# Keep SFT-only knobs under `sft`, GRPO/verl update knobs under `update`,
-# and shared model/data/runtime knobs in their own sections.
+# controller 后训练 runbook 的单一配置源。
+# SFT 专属参数放在 `sft`，GRPO/verl 更新参数放在 `update`，
+# 共享的模型、数据和运行时参数放在各自 section。
 seed: 42
 
-# Round identity. `previous_round_id` pulls accepted feedback from the prior round.
+# 训练轮次标识。`previous_round_id` 用来读取上一轮接纳的反馈样本。
 round:
   id: round_0001
   previous_round_id: ""
 
-# Safety switches for the notebook/CLI runbook. Long-running or external-API
-# steps should stay explicit here so re-running cells is predictable.
+# notebook/CLI runbook 的安全开关。长任务和外部 API 调用都显式放在这里，
+# 这样重复执行 cell 时行为更可控。
 run:
   sft: true
-  # Export builds verl datasets/requests; full_update actually launches verl.
+  # export 只生成 verl 数据和请求；full_update 才真正启动 verl。
   grpo_export_only: true
   grpo_full_update: true
-  # Holdout rollout requires an OpenAI-compatible local inference endpoint.
+  # holdout rollout 需要本地 OpenAI-compatible 推理端点。
   predict_holdout: false
-  # Evaluation calls the teacher/regression judge on existing predictions.
+  # evaluate 会用已有 predictions 调用 teacher/regression judge。
   evaluate: true
   annotate_queue: true
 
-# All generated artifacts live under var/runs by default. Paths may use {round_id}.
+# 生成产物默认写到 var/runs。路径可使用 {round_id} 占位。
 outputs:
   sft_dir: var/runs/task_router_graph_train/sft/{round_id}
   sft_merged_dir: var/runs/task_router_graph_train/sft/{round_id}/merged
@@ -29,8 +29,8 @@ outputs:
   eval_dir: var/runs/task_router_graph_train/eval/{round_id}
   holdout_predictions: var/runs/task_router_graph_train/predictions/{round_id}_holdout_predictions.jsonl
 
-# Optional post-GRPO holdout rollout. This is separate from verl rollout:
-# it queries a served model endpoint and writes predictions for teacher scoring.
+# GRPO 后可选的 holdout rollout。它和 verl 内部 rollout 分开：
+# 这里请求已部署的模型端点，并写出 predictions 供 teacher 打分。
 holdout_inference:
   base_url: http://127.0.0.1:30000/v1
   api_key_env: SGLANG_API_KEY
@@ -40,8 +40,8 @@ holdout_inference:
   temperature: 0.0
   max_samples: 30
 
-# Teacher backends. The top-level teacher is the default; role-specific blocks
-# override it for reward judging or regression evaluation.
+# teacher 后端配置。顶层 teacher 是默认值；按角色配置的 block
+# 会覆盖默认值，用于 reward judge 或 regression evaluation。
 teacher:
   mode: online
   base_url: https://dashscope.aliyuncs.com/compatible-mode/v1
@@ -68,7 +68,7 @@ teacher:
     allow_missing_api_key: false
     ranking_path: ""
 
-# GRPO candidate generation settings consumed by verl/SGLang.
+# verl/SGLang 消费的 GRPO 候选生成参数。
 rollout:
   backend: sglang
   num_candidates: 4
@@ -83,8 +83,8 @@ rollout:
   max_num_seqs: 256
   load_format: auto
 
-# GRPO/verl update settings. Do not reuse this learning rate for SFT:
-# SFT has its own `sft.learning_rate` below.
+# GRPO/verl 更新参数。不要把这里的 learning_rate 复用给 SFT：
+# SFT 有独立的 `sft.learning_rate`。
 update:
   backend: verl
   adv_estimator: grpo
@@ -113,14 +113,14 @@ update:
   use_kl_loss: true
   norm_adv_by_std_in_grpo: true
 
-# Policy model used by SFT and GRPO. GRPO/SGLang direct update currently uses
-# full-rank weight sync, so keep model.lora_rank=0 for that path.
+# SFT 和 GRPO 共用的 policy model。当前 GRPO/SGLang direct update
+# 使用 full-rank 权重同步，因此这条路径保持 model.lora_rank=0。
 model:
   path: /model/default/Qwen3-0.6B/Qwen3-0.6B
-  # Optional larger local model:
+  # 可选的本地更大模型：
   # path: /model/default/Qwen3.5-4B
   trust_remote_code: false
-  # SGLang direct weight sync in the current verl/SGLang runtime is stable for full-rank updates.
+  # 当前 verl/SGLang runtime 的 direct weight sync 在 full-rank update 下更稳定。
   lora_rank: 0
   lora_alpha: 0
   lora_dropout: 0.05
@@ -130,7 +130,7 @@ model:
     - q_proj
     - v_proj
 
-# Shared prompt/response data limits and verl dataset key mapping.
+# 共享的 prompt/response 长度限制，以及 verl dataset 字段映射。
 data:
   max_prompt_length: 2048
   max_response_length: 512
@@ -144,8 +144,8 @@ controller_state_view:
   compress: false
   compress_target_tokens: null
 
-# SFT-only settings. These train the adapter/merged model before GRPO.
-# Keep this LR higher than GRPO unless you intentionally want very slow SFT.
+# SFT 专属参数。这里训练 GRPO 前的 adapter/merged model。
+# 除非故意让 SFT 很慢，否则这里的 LR 应高于 GRPO。
 sft:
   total_epochs: 5
   learning_rate: 2.0e-4
@@ -160,7 +160,7 @@ sft:
   torch_empty_cache_steps: 1
   nproc_per_node: 1
 
-# Feedback loop policy for admitting teacher-labeled badcases into later rounds.
+# feedback loop 策略：控制 teacher 标注的 badcase 如何进入后续轮次。
 feedback:
   auto_sft_confidence_threshold: 0.85
   regression_reserve_ratio: 0.2
@@ -170,7 +170,7 @@ feedback:
 debug:
   allow_oracle_file_teacher: false
 
-# Extra artifact switches for local debugging. Keep false for normal runs.
+# 本地调试用的额外产物开关。正常训练保持 false。
 audit:
   export_rollout_preview: false
   export_teacher_preview: false
