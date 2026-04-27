@@ -94,10 +94,12 @@ rollout:
 update:
   backend: verl
   adv_estimator: grpo
-  total_epochs: 1
+  # 当前 round 的训练集很小，1 个 epoch 只有十来步，不足以观察稳定趋势。
+  # 如需更充分训练，可先从 3 调到 5；过高会线性增加 online teacher 成本。
+  total_epochs: 3
   train_batch_size: 8
   val_batch_size: 4
-  learning_rate: 2.0e-6
+  learning_rate: 5.0e-6
   per_device_train_batch_size: 1
   gradient_accumulation_steps: 4
   ref_log_prob_micro_batch_size_per_gpu: 1
