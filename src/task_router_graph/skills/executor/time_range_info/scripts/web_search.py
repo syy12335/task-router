@@ -9,6 +9,7 @@ import os
 import re
 import sys
 from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, TypedDict
 from urllib.error import URLError
@@ -129,6 +130,8 @@ class FlowState(TypedDict, total=False):
     refine_trace: list[dict[str, Any]]
     verify_trace: list[dict[str, Any]]
     answer_trace: dict[str, Any]
+    query_prepare_trace: dict[str, Any]
+    time_context: dict[str, Any]
     refine_history: list[str]
     task_status: str
     task_result: str
@@ -185,12 +188,22 @@ class TimeRangeRagSubAgent:
 
     def run(self, *, input_payload: dict[str, Any]) -> dict[str, str]:
         workflow = _build_workflow(policy=self.policy, chat_cfg=self.chat_cfg, embedding_cfg=self.embedding_cfg)
-        state = workflow.invoke({"input_payload": input_payload})
+        state = workflow.invoke(
+            {"input_payload": input_payload},
+            config={"recursion_limit": _workflow_recursion_limit(max_iterations=self.policy.max_iterations)},
+        )
         status = str(state.get("task_status", "failed")).strip().lower()
         if status not in {"done", "failed"}:
             status = "failed"
         result = str(state.get("task_result", "")).strip() or "agentic rag sub-agent finished without result"
         return {"task_status": status, "task_result": result}
+
+
+def _workflow_recursion_limit(*, max_iterations: int) -> int:
+    # One search round traverses search/refine/verify and most rounds add rewrite.
+    # Keep a margin above the theoretical node count so LangGraph can reach END.
+    iterations = max(1, int(max_iterations))
+    return max(25, iterations * 6 + 10)
 
 
 def _find_repo_root() -> Path:
@@ -354,6 +367,20 @@ def _safe_http_get_text(*, url: str, timeout_sec: float, max_bytes: int) -> str:
     if len(raw) > max_bytes:
         raw = raw[:max_bytes]
     return raw.decode("utf-8", errors="ignore")
+
+
+def _beijing_time_payload() -> dict[str, str]:
+    beijing_tz = timezone(timedelta(hours=8), name="Asia/Shanghai")
+    now = datetime.now(tz=beijing_tz)
+    return {
+        "timezone": "Asia/Shanghai",
+        "utc_offset": "+08:00",
+        "iso": now.isoformat(),
+        "date": now.strftime("%Y-%m-%d"),
+        "time": now.strftime("%H:%M:%S"),
+        "weekday": now.strftime("%A"),
+        "note": "北京时间（中国标准时间）",
+    }
 
 
 def _openai_post_json(*, base_url: str, path: str, api_key: str, payload: dict[str, Any], timeout_sec: float) -> dict[str, Any]:
@@ -743,6 +770,7 @@ def _pack_trace(state: FlowState, *, answer_trace: dict[str, Any] | None = None)
     if answer_trace is None:
         answer_trace = dict(state.get("answer_trace", {}))
     return {
+        "query_prepare_trace": dict(state.get("query_prepare_trace", {})),
         "search_trace": list(state.get("search_trace", [])),
         "refine_trace": list(state.get("refine_trace", [])),
         "verify_trace": list(state.get("verify_trace", [])),
@@ -806,7 +834,80 @@ def _validate_input(state: FlowState) -> FlowState:
         "refine_trace": [],
         "verify_trace": [],
         "answer_trace": {},
+        "query_prepare_trace": {},
+        "time_context": {},
         "refine_history": [],
+    }
+
+
+def _prepare_query_stage(state: FlowState, *, chat_cfg: ChatConfig) -> FlowState:
+    if str(state.get("task_status", "")).strip().lower() == "failed":
+        return {}
+
+    query = str(state.get("query", "")).strip()
+    if not query:
+        return {"task_status": "failed", "task_result": "query is empty"}
+
+    time_context = _beijing_time_payload()
+    warnings = list(state.get("warnings", []))
+    system_prompt = (
+        "You prepare one concise web search query for a time-range information worker. "
+        "Use the provided Beijing time to resolve relative time expressions when needed. "
+        "If relative time is present, replace it with an absolute date, year, or date range in search_query; "
+        "do not leave relative time words in search_query. "
+        "For example, when the Beijing date is 2026-04-27, yesterday means 2026-04-26 and last year means 2025. "
+        "Keep the user's place, topic, and intent. "
+        "Return only JSON with search_query and time_basis. "
+        "Do not answer the user's question."
+    )
+    result = _chat_json(
+        chat_cfg=chat_cfg,
+        system_prompt=system_prompt,
+        user_payload={
+            "user_query": query,
+            "beijing_time": time_context,
+            "output_schema": {"search_query": "string", "time_basis": "string"},
+        },
+    )
+    prepared_query = str(result.get("search_query", "")).strip()
+    time_basis = str(result.get("time_basis", "")).strip()
+
+    if not prepared_query:
+        warnings.append("query prepare stage unavailable; using original query")
+        return {
+            "current_query": query,
+            "warnings": warnings,
+            "time_context": time_context,
+            "query_prepare_trace": {
+                "status": "fallback",
+                "input_query": query,
+                "output_query": query,
+                "time_context": time_context,
+            },
+        }
+
+    if len(prepared_query) > MAX_WEB_SEARCH_QUERY_CHARS:
+        prepared_query = prepared_query[:MAX_WEB_SEARCH_QUERY_CHARS].strip()
+        warnings.append("prepared query truncated to max query length")
+
+    query_history = list(state.get("query_history", []))
+    if not query_history:
+        query_history = [query]
+    if prepared_query and prepared_query != query_history[-1]:
+        query_history.append(prepared_query)
+
+    return {
+        "current_query": prepared_query,
+        "query_history": query_history,
+        "warnings": warnings,
+        "time_context": time_context,
+        "query_prepare_trace": {
+            "status": "prepared",
+            "input_query": query,
+            "output_query": prepared_query,
+            "time_basis": time_basis,
+            "time_context": time_context,
+        },
     }
 
 
@@ -1313,6 +1414,7 @@ def _decide_next(state: FlowState) -> str:
 def _build_workflow(*, policy: RetrievalPolicy, chat_cfg: ChatConfig, embedding_cfg: EmbeddingConfig) -> Any:
     builder = StateGraph(FlowState)
     builder.add_node("validate_input", _validate_input)
+    builder.add_node("prepare_query", lambda state: _prepare_query_stage(state, chat_cfg=chat_cfg))
     builder.add_node("search_stage", lambda state: _search_stage(state, policy=policy, embedding_cfg=embedding_cfg))
     builder.add_node("refine_stage", lambda state: _refine_stage(state, policy=policy, chat_cfg=chat_cfg))
     builder.add_node("verify_stage", lambda state: _verify_stage(state, policy=policy, chat_cfg=chat_cfg, embedding_cfg=embedding_cfg))
@@ -1321,7 +1423,8 @@ def _build_workflow(*, policy: RetrievalPolicy, chat_cfg: ChatConfig, embedding_
     builder.add_node("finalize_failure", lambda state: _finalize_failure(state, policy=policy))
 
     builder.add_edge(START, "validate_input")
-    builder.add_edge("validate_input", "search_stage")
+    builder.add_edge("validate_input", "prepare_query")
+    builder.add_edge("prepare_query", "search_stage")
     builder.add_edge("search_stage", "refine_stage")
     builder.add_edge("refine_stage", "verify_stage")
     builder.add_conditional_edges(
