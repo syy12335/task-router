@@ -65,6 +65,16 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--node-rank", type=int, default=0)
     parser.add_argument("--master-addr", default="127.0.0.1")
     parser.add_argument("--master-port", type=int, default=29500)
+    parser.add_argument(
+        "--export-merged-model",
+        action="store_true",
+        help="Also export a full merged model for GRPO/SGLang direct update.",
+    )
+    parser.add_argument(
+        "--merged-output-dir",
+        default="",
+        help="Directory for the merged full model. Defaults to <output-dir>/merged when --export-merged-model is set.",
+    )
     parser.add_argument("--distributed-worker", action="store_true", help=argparse.SUPPRESS)
     return parser.parse_args()
 
@@ -99,6 +109,8 @@ def main() -> None:
         master_addr=args.master_addr,
         master_port=args.master_port,
         distributed_worker=bool(args.distributed_worker),
+        export_merged_model=bool(args.export_merged_model),
+        merged_output_dir=Path(args.merged_output_dir).resolve() if args.merged_output_dir.strip() else None,
     )
     if int(os.environ.get("RANK", "0")) == 0:
         print(json.dumps(report, ensure_ascii=False, indent=2))

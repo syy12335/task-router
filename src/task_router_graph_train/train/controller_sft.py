@@ -14,6 +14,17 @@ from ..rounds import load_round_manifest, resolve_round_asset_path
 from ..types import SftExample
 
 
+CONTROLLER_RAW_CHAT_TEMPLATE = """{%- for message in messages -%}
+{%- if message['role'] == 'system' -%}
+{{ message['content'] + '\\n' }}
+{%- elif message['role'] == 'user' -%}
+{{ message['content'] }}
+{%- elif message['role'] == 'assistant' -%}
+{{ message['content'] }}
+{%- endif -%}
+{%- endfor -%}"""
+
+
 def load_sft_examples(path: Path) -> list[SftExample]:
     examples: list[SftExample] = []
     for row in read_jsonl(path):
@@ -282,6 +293,8 @@ def _build_sft_cli_args(
     master_addr: str,
     master_port: int,
     distributed_worker: bool,
+    export_merged_model: bool,
+    merged_output_dir: Path | None,
 ) -> list[str]:
     args = [
         "--model-name-or-path",
@@ -337,6 +350,10 @@ def _build_sft_cli_args(
         args.append("--gradient-checkpointing")
     if torch_empty_cache_steps is not None:
         args.extend(["--torch-empty-cache-steps", str(torch_empty_cache_steps)])
+    if export_merged_model:
+        args.append("--export-merged-model")
+    if merged_output_dir is not None:
+        args.extend(["--merged-output-dir", str(Path(merged_output_dir).resolve())])
     if distributed_worker:
         args.append("--distributed-worker")
     return args
@@ -370,6 +387,8 @@ def _build_distributed_launch_command(
     node_rank: int,
     master_addr: str,
     master_port: int,
+    export_merged_model: bool = False,
+    merged_output_dir: Path | None = None,
 ) -> list[str]:
     command = [
         sys.executable,
@@ -425,6 +444,8 @@ def _build_distributed_launch_command(
                 master_addr=master_addr,
                 master_port=master_port,
                 distributed_worker=True,
+                export_merged_model=export_merged_model,
+                merged_output_dir=merged_output_dir,
             ),
         ]
     )
@@ -441,12 +462,16 @@ def _build_sft_report_from_artifacts(*, output_dir: Path) -> dict[str, Any]:
     train_config = _load_json(output_dir / "train_config.json")
     train_metrics = _load_json(output_dir / "train_metrics.json")
     eval_metrics = _load_json(output_dir / "eval_metrics.json")
-    return {
+    merged_model_report = _load_json(output_dir / "merged_model_report.json")
+    report = {
         "train_config": train_config,
         "train_metrics": train_metrics,
         "eval_metrics": eval_metrics,
         "output_dir": to_safe_path(output_dir),
     }
+    if merged_model_report:
+        report["merged_model"] = merged_model_report
+    return report
 
 
 def _run_distributed_sft(
@@ -477,6 +502,8 @@ def _run_distributed_sft(
     node_rank: int,
     master_addr: str,
     master_port: int,
+    export_merged_model: bool,
+    merged_output_dir: Path | None,
 ) -> dict[str, Any]:
     output_dir.mkdir(parents=True, exist_ok=True)
     command = _build_distributed_launch_command(
@@ -506,6 +533,8 @@ def _run_distributed_sft(
         node_rank=node_rank,
         master_addr=master_addr,
         master_port=master_port,
+        export_merged_model=export_merged_model,
+        merged_output_dir=merged_output_dir,
     )
     env = os.environ.copy()
     src_root = str((_repo_root_from_train_module() / "src").resolve())
@@ -580,6 +609,8 @@ def train_controller_sft(
     master_addr: str = "127.0.0.1",
     master_port: int = 29500,
     distributed_worker: bool = False,
+    export_merged_model: bool = False,
+    merged_output_dir: Path | None = None,
 ) -> dict[str, Any]:
     if int(nproc_per_node) <= 0:
         raise ValueError("nproc_per_node must be positive")
@@ -624,6 +655,8 @@ def train_controller_sft(
             node_rank=node_rank,
             master_addr=master_addr,
             master_port=master_port,
+            export_merged_model=export_merged_model,
+            merged_output_dir=merged_output_dir,
         )
 
     dependencies = _require_training_dependencies()
@@ -747,6 +780,8 @@ def train_controller_sft(
         "distributed_worker": bool(distributed_worker),
         "world_size": _distributed_runtime_info()["world_size"],
         "round_id": str(round_id or "latest"),
+        "export_merged_model": bool(export_merged_model),
+        "merged_output_dir": to_safe_path(merged_output_dir) if merged_output_dir is not None else "",
     }
     if _is_primary_process():
         (output_dir / "train_config.json").write_text(
@@ -793,16 +828,34 @@ def train_controller_sft(
     else:
         generation_rows = []
 
+    merged_model_report: dict[str, Any] = {}
+    if trainer.is_world_process_zero() and export_merged_model:
+        resolved_merged_output_dir = merged_output_dir or (output_dir / "merged")
+        merged_model_report = _export_merged_lora_model(
+            model=trainer.model,
+            tokenizer=tokenizer,
+            output_dir=resolved_merged_output_dir,
+            source_adapter_dir=output_dir,
+            base_model_name_or_path=model_name_or_path,
+        )
+        (output_dir / "merged_model_report.json").write_text(
+            json.dumps(merged_model_report, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
 
     if trainer.is_world_process_zero():
-        return {
+        report = {
             "train_config": train_config,
             "train_metrics": train_metrics,
             "eval_metrics": eval_metrics,
             "output_dir": to_safe_path(output_dir),
         }
+        if merged_model_report:
+            report["merged_model"] = merged_model_report
+        return report
     return {
         "train_config": {
             "rank": _distributed_runtime_info()["rank"],
@@ -906,6 +959,39 @@ def _write_generation_rows(*, output_dir: Path, rows: list[dict[str, Any]]) -> N
     lines = [json.dumps(row, ensure_ascii=False) for row in rows]
     content = ("\n".join(lines) + "\n") if lines else ""
     (output_dir / "eval_generations.jsonl").write_text(content, encoding="utf-8")
+
+
+def _export_merged_lora_model(
+    *,
+    model: Any,
+    tokenizer: Any,
+    output_dir: Path,
+    source_adapter_dir: Path,
+    base_model_name_or_path: str,
+) -> dict[str, Any]:
+    unwrapped_model = _unwrap_model(model)
+    if not hasattr(unwrapped_model, "merge_and_unload"):
+        raise RuntimeError("SFT model is not a mergeable LoRA/PEFT model")
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+    merged_model = unwrapped_model.merge_and_unload()
+    if hasattr(merged_model, "config") and hasattr(merged_model.config, "use_cache"):
+        merged_model.config.use_cache = True
+    merged_model.save_pretrained(output_dir, safe_serialization=True)
+    tokenizer.chat_template = CONTROLLER_RAW_CHAT_TEMPLATE
+    tokenizer.save_pretrained(output_dir)
+
+    report = {
+        "merged_model_dir": to_safe_path(output_dir),
+        "source_adapter_dir": to_safe_path(source_adapter_dir),
+        "base_model_name_or_path": base_model_name_or_path,
+        "chat_template": "controller_raw_prompt",
+    }
+    (output_dir / "merged_model_report.json").write_text(
+        json.dumps(report, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    return report
 
 
 def _require_training_dependencies() -> dict[str, Any]:

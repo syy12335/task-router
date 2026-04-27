@@ -178,6 +178,9 @@ def train_controller_grpo(
     export_only: bool = False,
 ) -> dict[str, Any]:
     output_dir.mkdir(parents=True, exist_ok=True)
+    reward_audit_path = output_dir / "reward_audit.jsonl"
+    if reward_audit_path.exists():
+        reward_audit_path.unlink()
 
     repo_root = (runtime_root or REPO_ROOT).resolve()
     effective_config = _load_training_config(config_path or DEFAULT_GRPO_CONFIG_PATH)
@@ -285,6 +288,7 @@ def train_controller_grpo(
         "trainer_backend": "verl",
         "execution_mode": "export_only" if export_only or run_verl_update is False else "direct_update",
         "runtime_config_path": to_safe_path(runtime_config_path),
+        "reward_audit_path": to_safe_path(reward_audit_path),
         "train_dataset_path": to_safe_path(dataset_paths["train_path"]),
         "eval_dataset_path": to_safe_path(dataset_paths["eval_path"]),
         "rollout_backend": str(effective_config["rollout"]["backend"]),
@@ -302,12 +306,14 @@ def train_controller_grpo(
         "output_dir": to_safe_path(output_dir),
         "config_path": to_safe_path((config_path or DEFAULT_GRPO_CONFIG_PATH).resolve()),
         "runtime_config_path": to_safe_path(runtime_config_path),
+        "reward_audit_path": to_safe_path(reward_audit_path),
         "rollout_backend": str(effective_config["rollout"]["backend"]),
         "teacher_backend": str(teacher_config["mode"]),
         "teacher_mode": str(teacher_config["mode"]),
         "teacher_model": str(teacher_config.get("model", "")),
         "teacher_config": sanitize_teacher_config_for_report(teacher_config),
         "update_backend": str(effective_config["update"]["backend"]),
+        "model_path": model_path,
         "train_dataset_path": to_safe_path(dataset_paths["train_path"]),
         "eval_dataset_path": to_safe_path(dataset_paths["eval_path"]),
         "verl_training_request_path": to_safe_path(request_path),
@@ -330,6 +336,7 @@ def train_controller_grpo(
             output_dir=output_dir,
             hydra_overrides=overrides,
             runtime_config_path=runtime_config_path,
+            reward_audit_path=reward_audit_path,
             repo_root=repo_root,
             stream_logs=stream_logs,
         )
@@ -770,6 +777,7 @@ def _run_verl_training(
     output_dir: Path,
     hydra_overrides: list[str],
     runtime_config_path: Path,
+    reward_audit_path: Path,
     repo_root: Path,
     stream_logs: bool = True,
 ) -> dict[str, Any]:
@@ -782,6 +790,7 @@ def _run_verl_training(
     existing_pythonpath = env.get("PYTHONPATH", "")
     env["PYTHONPATH"] = src_root if not existing_pythonpath else src_root + os.pathsep + existing_pythonpath
     env["TASK_ROUTER_GRPO_RUNTIME_CONFIG_PATH"] = str(runtime_config_path.resolve())
+    env["TASK_ROUTER_GRPO_REWARD_AUDIT_PATH"] = str(reward_audit_path.resolve())
     env.setdefault("TASK_ROUTER_MP_AUTHKEY", f"task-router-grpo-{os.getpid()}")
     env.setdefault("HYDRA_FULL_ERROR", "1")
     env.setdefault("PYTHONUNBUFFERED", "1")
@@ -808,6 +817,7 @@ def _run_verl_training(
                 print(f"[GRPO] launching verl pid via: {' '.join(command)}", flush=True)
                 print(f"[GRPO] stdout log: {to_safe_path(stdout_log)}", flush=True)
                 print(f"[GRPO] stderr log: {to_safe_path(stderr_log)}", flush=True)
+                print(f"[GRPO] reward audit: {to_safe_path(reward_audit_path)}", flush=True)
             proc = subprocess.Popen(
                 command,
                 cwd=repo_root,

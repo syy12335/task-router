@@ -14,6 +14,7 @@ run:
 
 outputs:
   sft_dir: var/runs/task_router_graph_train/sft/{round_id}
+  sft_merged_dir: var/runs/task_router_graph_train/sft/{round_id}/merged
   grpo_dir: var/runs/task_router_graph_train/grpo/{round_id}
   eval_dir: var/runs/task_router_graph_train/eval/{round_id}
   holdout_predictions: var/runs/task_router_graph_train/predictions/{round_id}_holdout_predictions.jsonl
@@ -49,6 +50,7 @@ teacher:
     max_batch_size: 4
     max_tokens: 2048
     temperature: 0.0
+    format_retry_count: 2
     allow_missing_api_key: false
     ranking_path: ""
 
@@ -124,6 +126,7 @@ controller_state_view:
 
 sft:
   total_epochs: 5
+  export_merged_model: true
   max_seq_length: 1024
   lora_rank: 8
   lora_alpha: 16

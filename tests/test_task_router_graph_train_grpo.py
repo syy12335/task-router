@@ -8,6 +8,7 @@ import pytest
 
 from task_router_graph_train.dataset import prepare_round_assets
 from task_router_graph_train.train import controller_grpo
+from task_router_graph_train.train import controller_grpo_reward
 from task_router_graph_train.train import controller_grpo_teacher
 
 
@@ -207,6 +208,25 @@ def test_normalize_teacher_result_blends_dimension_scores() -> None:
     assert set(result["ranking"]) == {"c1", "c2"}
 
 
+def test_normalize_teacher_result_rejects_missing_dimension_scores() -> None:
+    with pytest.raises(ValueError, match="missing candidate"):
+        controller_grpo_teacher.normalize_teacher_result(
+            group_id="g1",
+            raw_result={
+                "dimension_scores_by_candidate": {
+                    "c1": {
+                        "environment_raw_score": 1.0,
+                        "action_raw_score": 1.0,
+                        "args_raw_score": 1.0,
+                    }
+                },
+                "confidence": 1.0,
+                "reason": "teacher omitted c2",
+            },
+            candidate_ids=["c1", "c2"],
+        )
+
+
 def test_judge_controller_group_appends_hard_gate_failures(monkeypatch) -> None:
     monkeypatch.setattr(
         controller_grpo_teacher,
@@ -243,3 +263,179 @@ def test_judge_controller_group_appends_hard_gate_failures(monkeypatch) -> None:
     )
     assert result["ranking"][-1] == "bad"
     assert result["hard_gate_results"]["bad"]["failure_stage"] == "protocol"
+
+
+def test_judge_controller_group_retries_then_skips_invalid_teacher_output(monkeypatch) -> None:
+    calls: list[object] = []
+
+    def fake_chat_json(**_: object) -> dict[str, object]:
+        calls.append(object())
+        return {
+            "dimension_scores_by_candidate": {
+                "cand_00": {
+                    "environment_raw_score": 1.0,
+                    "action_raw_score": 1.0,
+                    "args_raw_score": 1.0,
+                }
+            },
+            "confidence": 1.0,
+            "reason": "missing cand_01",
+        }
+
+    monkeypatch.setattr(controller_grpo_teacher, "_chat_json", fake_chat_json)
+
+    result = controller_grpo_teacher.judge_controller_group(
+        group_id="g1",
+        state_input={"USER_INPUT": "u", "ENVIRONMENT_JSON": {}, "SKILLS_INDEX": "[]"},
+        prompt_text="p",
+        teacher_config={
+            "mode": "online",
+            "base_url": "http://x",
+            "model": "m",
+            "api_key": "k",
+            "timeout_sec": 1,
+            "rubric_id": "controller_grpo_pairwise_v1",
+            "format_retry_count": 1,
+        },
+        candidates=[
+            {
+                "candidate_id": "cand_00",
+                "raw_text": '{"action_kind":"observe","tool":"build_context_view","args":{"round_limit":3,"include_trace":false,"include_user_input":true,"include_task":true,"include_reply":true},"reason":"ok"}',
+                "action": {},
+            },
+            {
+                "candidate_id": "cand_01",
+                "raw_text": '{"action_kind":"observe","tool":"build_context_view","args":{"round_limit":3,"include_trace":false,"include_user_input":true,"include_task":true,"include_reply":true},"reason":"also ok"}',
+                "action": {},
+            },
+        ],
+    )
+
+    assert len(calls) == 2
+    assert result["teacher_skipped"] is True
+    assert result["scores_by_candidate"] == {"cand_00": 0.0, "cand_01": 0.0}
+    assert result["teacher_format_errors"]
+
+
+def test_judge_controller_group_retries_invalid_teacher_output(monkeypatch) -> None:
+    responses = [
+        {
+            "dimension_scores_by_candidate": {
+                "cand_00": {
+                    "environment_raw_score": 1.0,
+                    "action_raw_score": 1.0,
+                    "args_raw_score": 1.0,
+                }
+            },
+            "confidence": 1.0,
+            "reason": "missing cand_01",
+        },
+        {
+            "dimension_scores_by_candidate": {
+                "cand_00": {
+                    "environment_raw_score": 1.0,
+                    "action_raw_score": 1.0,
+                    "args_raw_score": 1.0,
+                },
+                "cand_01": {
+                    "environment_raw_score": 0.5,
+                    "action_raw_score": 0.5,
+                    "args_raw_score": 0.5,
+                },
+            },
+            "confidence": 1.0,
+            "reason": "ok",
+        },
+    ]
+
+    monkeypatch.setattr(controller_grpo_teacher, "_chat_json", lambda **_: responses.pop(0))
+
+    result = controller_grpo_teacher.judge_controller_group(
+        group_id="g1",
+        state_input={"USER_INPUT": "u", "ENVIRONMENT_JSON": {}, "SKILLS_INDEX": "[]"},
+        prompt_text="p",
+        teacher_config={
+            "mode": "online",
+            "base_url": "http://x",
+            "model": "m",
+            "api_key": "k",
+            "timeout_sec": 1,
+            "rubric_id": "controller_grpo_pairwise_v1",
+            "format_retry_count": 1,
+        },
+        candidates=[
+            {
+                "candidate_id": "cand_00",
+                "raw_text": '{"action_kind":"observe","tool":"build_context_view","args":{"round_limit":3,"include_trace":false,"include_user_input":true,"include_task":true,"include_reply":true},"reason":"ok"}',
+                "action": {},
+            },
+            {
+                "candidate_id": "cand_01",
+                "raw_text": '{"action_kind":"observe","tool":"build_context_view","args":{"round_limit":3,"include_trace":false,"include_user_input":true,"include_task":true,"include_reply":true},"reason":"also ok"}',
+                "action": {},
+            },
+        ],
+    )
+
+    assert result["teacher_skipped"] is False
+    assert result["scores_by_candidate"]["cand_00"] > result["scores_by_candidate"]["cand_01"]
+    assert result["teacher_format_errors"]
+
+
+def test_score_group_candidates_writes_reward_audit(monkeypatch, tmp_path: Path) -> None:
+    def fake_judge_controller_group(**_: object) -> dict[str, object]:
+        return {
+            "ranking": ["cand_00", "cand_01"],
+            "scores_by_candidate": {"cand_00": -1.0, "cand_01": -1.0},
+            "dimension_scores_by_candidate": {},
+            "confidence": 1.0,
+            "reason": "all candidates failed hard gate",
+            "hard_gate_results": {
+                "cand_00": {
+                    "action": None,
+                    "parse_ok": False,
+                    "parse_errors": ["not json"],
+                    "schema_ok": False,
+                    "schema_errors": [],
+                    "protocol_ok": False,
+                    "protocol_errors": [],
+                    "hard_gate_passed": False,
+                    "failure_stage": "parse",
+                    "failure_reason": "not json",
+                },
+                "cand_01": {
+                    "action": {"action": "executor"},
+                    "parse_ok": True,
+                    "parse_errors": [],
+                    "schema_ok": False,
+                    "schema_errors": ["bad schema"],
+                    "protocol_ok": False,
+                    "protocol_errors": [],
+                    "hard_gate_passed": False,
+                    "failure_stage": "schema",
+                    "failure_reason": "bad schema",
+                },
+            },
+        }
+
+    monkeypatch.setattr(controller_grpo_reward, "judge_controller_group", fake_judge_controller_group)
+    audit_path = tmp_path / "reward_audit.jsonl"
+
+    rows = controller_grpo_reward.score_group_candidates(
+        group_id="g1",
+        sample_id="s1",
+        state_input={"USER_INPUT": "u", "ENVIRONMENT_JSON": {}, "SKILLS_INDEX": "[]"},
+        prompt_text="p",
+        teacher_config={"mode": "online"},
+        audit_path=audit_path,
+        entries=[
+            {"candidate_id": "cand_00", "candidate_index": 0, "raw_text": "bad", "action": None},
+            {"candidate_id": "cand_01", "candidate_index": 1, "raw_text": "{\"action\":\"executor\"}", "action": {"action": "executor"}},
+        ],
+    )
+
+    assert [row["reward_score"] for row in rows] == [-1.0, -1.0]
+    audit_row = json.loads(audit_path.read_text(encoding="utf-8"))
+    assert audit_row["passed_count"] == 0
+    assert audit_row["failure_counts_by_stage"] == {"parse": 1, "schema": 1}
+    assert audit_row["candidates"][0]["failure_reason"] == "not json"

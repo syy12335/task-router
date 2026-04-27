@@ -103,6 +103,7 @@ def resolve_teacher_config(config: dict[str, Any], role: str = DEFAULT_TEACHER_R
     teacher["max_tokens"] = int(teacher.get("max_tokens", 2048))
     teacher["temperature"] = float(teacher.get("temperature", 0.0))
     teacher["max_batch_size"] = int(teacher.get("max_batch_size", 4))
+    teacher["format_retry_count"] = int(teacher.get("format_retry_count", 2))
     teacher["ranking_path"] = str(teacher.get("ranking_path", "")).strip()
     teacher["base_url"] = str(teacher.get("base_url", "")).strip()
     teacher["model"] = str(teacher.get("model", "")).strip()
@@ -355,9 +356,11 @@ def judge_controller_group(
         )
 
     rubric = get_teacher_rubric(str(teacher_config.get("rubric_id", "")))
+    output_schema = _build_group_teacher_output_schema(passed_candidate_ids)
     payload = {
         "task": "对同一 controller state 下的多个 candidate action 做相对排序或打分。",
         "group_id": group_id,
+        "required_candidate_ids": list(passed_candidate_ids),
         "state_input": copy.deepcopy(state_input),
         "prompt": prompt_text,
         "rubric": rubric,
@@ -371,29 +374,16 @@ def judge_controller_group(
             for candidate in candidates
             if hard_gate_results[str(candidate.get("candidate_id", "")).strip()]["hard_gate_passed"]
         ],
-        "output_schema": {
-            "dimension_scores_by_candidate": {
-                "cand_00": {
-                    "environment_raw_score": 1.0,
-                    "action_raw_score": 1.0,
-                    "args_raw_score": 1.0,
-                }
-            },
-            "confidence": "0~1",
-            "reason": "string",
-        },
+        "output_schema": output_schema,
     }
-    raw_result = _chat_json(
-        base_url=str(teacher_config["base_url"]),
-        api_key=str(teacher_config["api_key"]),
-        model=str(teacher_config["model"]),
-        timeout_sec=float(teacher_config["timeout_sec"]),
-        temperature=float(teacher_config.get("temperature", 0.0)),
-        max_tokens=int(teacher_config.get("max_tokens", 2048)),
+    normalized = _chat_group_teacher_with_format_retries(
+        group_id=group_id,
+        payload=payload,
+        candidate_ids=candidate_ids,
+        passed_candidate_ids=passed_candidate_ids,
+        teacher_config=teacher_config,
         system_prompt=_build_group_teacher_system_prompt(rubric),
-        user_payload=payload,
     )
-    normalized = normalize_teacher_result(group_id=group_id, raw_result=raw_result, candidate_ids=passed_candidate_ids)
     return _merge_hard_gate_results(
         group_id=group_id,
         candidate_ids=candidate_ids,
@@ -616,6 +606,9 @@ def _build_group_teacher_system_prompt(rubric: dict[str, Any]) -> str:
         [
             "",
             "只返回 dimension_scores_by_candidate、confidence、reason。",
+            "dimension_scores_by_candidate 的 key 必须严格等于输入里的 required_candidate_ids。",
+            "不得遗漏 required_candidate_ids 中的任何 candidate_id，也不得输出额外 candidate_id。",
+            "每个 candidate 必须包含 environment_raw_score/action_raw_score/args_raw_score 三个 0 到 1 的数字。",
             "不要自己做最终排序分或 alpha 混合；这些由本地代码完成。",
         ]
     )
@@ -734,6 +727,122 @@ def _chat_json(
     return parse_json_object(str(content))
 
 
+def _build_group_teacher_output_schema(candidate_ids: list[str]) -> dict[str, Any]:
+    score_schema = {
+        "type": "object",
+        "required": ["environment_raw_score", "action_raw_score", "args_raw_score"],
+        "additionalProperties": False,
+        "properties": {
+            "environment_raw_score": {"type": "number", "minimum": 0.0, "maximum": 1.0},
+            "action_raw_score": {"type": "number", "minimum": 0.0, "maximum": 1.0},
+            "args_raw_score": {"type": "number", "minimum": 0.0, "maximum": 1.0},
+        },
+    }
+    return {
+        "type": "object",
+        "required": ["dimension_scores_by_candidate", "confidence", "reason"],
+        "additionalProperties": False,
+        "properties": {
+            "dimension_scores_by_candidate": {
+                "type": "object",
+                "required": list(candidate_ids),
+                "additionalProperties": False,
+                "properties": {candidate_id: copy.deepcopy(score_schema) for candidate_id in candidate_ids},
+            },
+            "confidence": {"type": "number", "minimum": 0.0, "maximum": 1.0},
+            "reason": {"type": "string"},
+        },
+    }
+
+
+def _chat_group_teacher_with_format_retries(
+    *,
+    group_id: str,
+    payload: dict[str, Any],
+    candidate_ids: list[str],
+    passed_candidate_ids: list[str],
+    teacher_config: dict[str, Any],
+    system_prompt: str,
+) -> dict[str, Any]:
+    max_retries = max(0, int(teacher_config.get("format_retry_count", 2)))
+    format_errors: list[str] = []
+    raw_attempts: list[dict[str, Any]] = []
+
+    for attempt_index in range(max_retries + 1):
+        attempt_payload = copy.deepcopy(payload)
+        if format_errors:
+            attempt_payload["retry_instruction"] = (
+                "上一轮 teacher 输出未通过本地 schema 校验。"
+                "请只修正输出 JSON，不要改变 candidate_id；"
+                "dimension_scores_by_candidate 必须严格覆盖 required_candidate_ids。"
+            )
+            attempt_payload["previous_format_errors"] = list(format_errors)
+
+        try:
+            raw_result = _chat_json(
+                base_url=str(teacher_config["base_url"]),
+                api_key=str(teacher_config["api_key"]),
+                model=str(teacher_config["model"]),
+                timeout_sec=float(teacher_config["timeout_sec"]),
+                temperature=float(teacher_config.get("temperature", 0.0)),
+                max_tokens=int(teacher_config.get("max_tokens", 2048)),
+                system_prompt=system_prompt,
+                user_payload=attempt_payload,
+            )
+            raw_attempts.append(copy.deepcopy(raw_result))
+            normalized = normalize_teacher_result(
+                group_id=group_id,
+                raw_result=raw_result,
+                candidate_ids=passed_candidate_ids,
+            )
+            normalized["format_retry_count"] = attempt_index
+            normalized["format_errors"] = list(format_errors)
+            normalized["raw_attempts"] = copy.deepcopy(raw_attempts)
+            return normalized
+        except ValueError as exc:
+            format_errors.append(str(exc))
+
+    return _build_skipped_group_teacher_result(
+        group_id=group_id,
+        candidate_ids=candidate_ids,
+        reason="teacher output failed schema validation after retries",
+        format_errors=format_errors,
+        raw_attempts=raw_attempts,
+    )
+
+
+def _build_skipped_group_teacher_result(
+    *,
+    group_id: str,
+    candidate_ids: list[str],
+    reason: str,
+    format_errors: list[str],
+    raw_attempts: list[dict[str, Any]],
+) -> dict[str, Any]:
+    return {
+        "group_id": group_id,
+        "ranking": list(candidate_ids),
+        "scores_by_candidate": {candidate_id: 0.0 for candidate_id in candidate_ids},
+        "dimension_scores_by_candidate": {},
+        "alpha": RANK_MIX_ALPHA,
+        "weights": {
+            "environment": ENVIRONMENT_WEIGHT,
+            "action": ACTION_WEIGHT,
+            "args": ARGS_WEIGHT,
+        },
+        "confidence": 0.0,
+        "reason": reason,
+        "raw_result": {
+            "skipped": True,
+            "format_errors": list(format_errors),
+            "raw_attempts": copy.deepcopy(raw_attempts),
+        },
+        "skipped": True,
+        "format_errors": list(format_errors),
+        "raw_attempts": copy.deepcopy(raw_attempts),
+    }
+
+
 def _openai_post_json(
     *,
     base_url: str,
@@ -787,10 +896,22 @@ def _normalize_dimension_scores_by_candidate(
 ) -> dict[str, dict[str, float]]:
     normalized: dict[str, dict[str, float]] = {}
     required_keys = ("environment_raw_score", "action_raw_score", "args_raw_score")
+    actual_candidate_ids = {str(candidate_id) for candidate_id in raw_scores}
+    expected_candidate_ids = set(candidate_ids)
+    missing_candidate_ids = [candidate_id for candidate_id in candidate_ids if candidate_id not in actual_candidate_ids]
+    if missing_candidate_ids:
+        raise ValueError(
+            f"teacher dimension scores missing candidate for {group_id}: {', '.join(missing_candidate_ids)}"
+        )
+    unexpected_candidate_ids = sorted(actual_candidate_ids - expected_candidate_ids)
+    if unexpected_candidate_ids:
+        raise ValueError(
+            f"teacher dimension scores include unexpected candidate for {group_id}: {', '.join(unexpected_candidate_ids)}"
+        )
     for candidate_id in candidate_ids:
         payload = raw_scores.get(candidate_id)
         if not isinstance(payload, dict):
-            raise ValueError(f"teacher dimension scores missing candidate for {group_id}: {candidate_id}")
+            raise ValueError(f"teacher dimension scores must be object for {group_id}: {candidate_id}")
         candidate_scores: dict[str, float] = {}
         for key in required_keys:
             try:
@@ -889,11 +1010,19 @@ def _merge_hard_gate_results(
     passed_candidate_ids = [candidate_id for candidate_id in candidate_ids if hard_gate_results[candidate_id]["hard_gate_passed"]]
     final_scores_by_candidate = {candidate_id: -1.0 for candidate_id in candidate_ids}
     dimension_scores_by_candidate: dict[str, dict[str, float]] = {}
+    teacher_raw_result: dict[str, Any] = {}
+    teacher_skipped = False
+    teacher_format_errors: list[str] = []
+    teacher_raw_attempts: list[dict[str, Any]] = []
     confidence = 1.0
     reason = "all candidates failed hard gate"
     if teacher_result is not None:
         final_scores_by_candidate.update(teacher_result["scores_by_candidate"])
         dimension_scores_by_candidate = copy.deepcopy(teacher_result["dimension_scores_by_candidate"])
+        teacher_raw_result = copy.deepcopy(teacher_result.get("raw_result", {}))
+        teacher_skipped = bool(teacher_result.get("skipped", False))
+        teacher_format_errors = list(teacher_result.get("format_errors", []))
+        teacher_raw_attempts = copy.deepcopy(teacher_result.get("raw_attempts", []))
         confidence = float(teacher_result.get("confidence", 1.0))
         reason = str(teacher_result.get("reason", "")).strip()
 
@@ -909,6 +1038,10 @@ def _merge_hard_gate_results(
         "scores_by_candidate": final_scores_by_candidate,
         "final_scores_by_candidate": final_scores_by_candidate,
         "dimension_scores_by_candidate": dimension_scores_by_candidate,
+        "teacher_raw_result": teacher_raw_result,
+        "teacher_skipped": teacher_skipped,
+        "teacher_format_errors": teacher_format_errors,
+        "teacher_raw_attempts": teacher_raw_attempts,
         "hard_gate_results": copy.deepcopy(hard_gate_results),
         "alpha": RANK_MIX_ALPHA,
         "weights": {

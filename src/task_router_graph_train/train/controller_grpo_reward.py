@@ -2,7 +2,10 @@ from __future__ import annotations
 
 import asyncio
 import copy
+import json
 import os
+from pathlib import Path
+import threading
 from typing import Any
 
 try:
@@ -26,6 +29,9 @@ from task_router_graph_train.train.controller_grpo_teacher import (
 )
 
 
+_AUDIT_WRITE_LOCK = threading.Lock()
+
+
 class ControllerGroupRewardManager(RewardManagerBase):
     def __init__(self, config, tokenizer, compute_score=None, **_: Any) -> None:
         super().__init__(config, tokenizer, compute_score)
@@ -42,6 +48,7 @@ class ControllerGroupRewardManager(RewardManagerBase):
         self.pending_groups: dict[str, dict[str, Any]] = {}
         self.pending_lock = asyncio.Lock()
         self.group_timeout_sec = float(self.teacher_config.get("timeout_sec", 60)) + 5.0
+        self.reward_audit_path = os.getenv("TASK_ROUTER_GRPO_REWARD_AUDIT_PATH", "").strip()
 
     async def run_single(self, data: DataProto) -> dict[str, Any]:
         if len(data) != 1:
@@ -129,6 +136,7 @@ class ControllerGroupRewardManager(RewardManagerBase):
             prompt_text=str(group["prompt_text"]),
             entries=list(group["entries"]),
             teacher_config=self.teacher_config,
+            audit_path=self.reward_audit_path,
         )
         for entry, reward_row in zip(group["entries"], reward_rows, strict=True):
             entry["future"].set_result(reward_row)
@@ -142,6 +150,7 @@ def score_group_candidates(
     prompt_text: str,
     entries: list[dict[str, Any]],
     teacher_config: dict[str, Any],
+    audit_path: str | Path | None = None,
 ) -> list[dict[str, Any]]:
     candidates = [
         {
@@ -150,6 +159,7 @@ def score_group_candidates(
             "action": copy.deepcopy(entry.get("action")),
             "is_valid": bool(entry.get("is_valid", False)),
             "validation_errors": list(entry.get("validation_errors", [])),
+            "candidate_index": int(entry.get("candidate_index", 0)),
         }
         for entry in entries
     ]
@@ -159,6 +169,17 @@ def score_group_candidates(
         prompt_text=prompt_text,
         candidates=candidates,
         teacher_config=teacher_config,
+    )
+    _write_reward_audit_row(
+        audit_path=audit_path,
+        row=_build_reward_audit_row(
+            group_id=group_id,
+            sample_id=sample_id,
+            state_input=state_input,
+            prompt_text=prompt_text,
+            entries=entries,
+            teacher_result=teacher_result,
+        ),
     )
     rewards_by_candidate = dict(teacher_result["scores_by_candidate"])
     reward_rows: list[dict[str, Any]] = []
@@ -182,3 +203,77 @@ def score_group_candidates(
             }
         )
     return reward_rows
+
+
+def _build_reward_audit_row(
+    *,
+    group_id: str,
+    sample_id: str,
+    state_input: dict[str, Any],
+    prompt_text: str,
+    entries: list[dict[str, Any]],
+    teacher_result: dict[str, Any],
+) -> dict[str, Any]:
+    hard_gate_results = dict(teacher_result.get("hard_gate_results", {}))
+    scores_by_candidate = dict(teacher_result.get("scores_by_candidate", {}))
+    failure_counts_by_stage: dict[str, int] = {}
+    candidate_rows: list[dict[str, Any]] = []
+    passed_count = 0
+
+    for entry in entries:
+        candidate_id = str(entry.get("candidate_id", "")).strip()
+        hard_gate = dict(hard_gate_results.get(candidate_id, {}))
+        hard_gate_passed = bool(hard_gate.get("hard_gate_passed", False))
+        if hard_gate_passed:
+            passed_count += 1
+        else:
+            stage = str(hard_gate.get("failure_stage", "") or "unknown")
+            failure_counts_by_stage[stage] = failure_counts_by_stage.get(stage, 0) + 1
+
+        candidate_rows.append(
+            {
+                "candidate_id": candidate_id,
+                "candidate_index": int(entry.get("candidate_index", 0)),
+                "reward_score": float(scores_by_candidate.get(candidate_id, -1.0)),
+                "raw_text": str(entry.get("raw_text", "")),
+                "parsed_action": copy.deepcopy(hard_gate.get("action")),
+                "hard_gate_passed": hard_gate_passed,
+                "failure_stage": str(hard_gate.get("failure_stage", "")),
+                "failure_reason": str(hard_gate.get("failure_reason", "")),
+                "parse_errors": list(hard_gate.get("parse_errors", [])),
+                "schema_errors": list(hard_gate.get("schema_errors", [])),
+                "protocol_errors": list(hard_gate.get("protocol_errors", [])),
+            }
+        )
+
+    return {
+        "group_id": group_id,
+        "sample_id": sample_id,
+        "passed_count": passed_count,
+        "failed_count": max(0, len(entries) - passed_count),
+        "failure_counts_by_stage": failure_counts_by_stage,
+        "teacher_called": passed_count > 0,
+        "teacher_confidence": float(teacher_result.get("confidence", 1.0)),
+        "teacher_reason": str(teacher_result.get("reason", "")),
+        "teacher_skipped": bool(teacher_result.get("teacher_skipped", False)),
+        "teacher_format_errors": list(teacher_result.get("teacher_format_errors", [])),
+        "teacher_ranking": list(teacher_result.get("ranking", [])),
+        "scores_by_candidate": scores_by_candidate,
+        "dimension_scores_by_candidate": copy.deepcopy(teacher_result.get("dimension_scores_by_candidate", {})),
+        "teacher_raw_result": copy.deepcopy(teacher_result.get("teacher_raw_result", {})),
+        "teacher_raw_attempts": copy.deepcopy(teacher_result.get("teacher_raw_attempts", [])),
+        "state_input": copy.deepcopy(state_input),
+        "prompt_text": prompt_text,
+        "candidates": candidate_rows,
+    }
+
+
+def _write_reward_audit_row(*, audit_path: str | Path | None, row: dict[str, Any]) -> None:
+    if not audit_path:
+        return
+    path = Path(audit_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    line = json.dumps(row, ensure_ascii=False) + "\n"
+    with _AUDIT_WRITE_LOCK:
+        with path.open("a", encoding="utf-8") as handle:
+            handle.write(line)
