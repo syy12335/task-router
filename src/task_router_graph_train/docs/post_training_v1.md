@@ -105,7 +105,164 @@ teacher 会给每个 candidate 输出：
 
 `holdout` 只用于验证，不参与 `GRPO` 优化。
 
-## 3. Badcase 回流
+## 3. GRPO 前后评测
+
+`GRPO` 前后效果对比使用固定 `holdout` 上的 paired evaluation。
+
+对比对象：
+
+- `before = SFT checkpoint`
+- `after = GRPO checkpoint`
+
+评测单位仍然是 controller-only 的 single-step next action。
+
+评测输入固定为：
+
+```text
+USER_INPUT + ENVIRONMENT_JSON + SKILLS_INDEX
+```
+
+评测输出固定为：
+
+```text
+controller action JSON object
+```
+
+### 3.1 评测集
+
+评测集固定使用当前 round 的 `holdout_records`：
+
+```text
+assets/post_training/rounds/<round_id>/holdout_records.jsonl
+```
+
+每条样本至少包含：
+
+- `sample_id`
+- `state_input`
+- `gold_action`
+- `metadata.bucket_key`
+
+`gold_action` 是评分锚点，不是唯一正确答案。
+
+### 3.2 推理约束
+
+`before / after` 必须使用相同推理配置：
+
+- 同一批 `holdout_records`
+- 同一 prompt renderer
+- 同一 tokenizer
+- 同一 response length
+- 同一 decoding config
+
+主评测默认：
+
+```text
+temperature = 0.0
+max_tokens = 512
+```
+
+### 3.3 Scoring
+
+评测沿用 `GRPO` reward 的三维口径，但不做 group ranking。
+
+维度固定为：
+
+- `environment = 0.5`
+- `action = 0.3`
+- `args = 0.2`
+
+每个维度只给三档：
+
+```text
+0 = wrong
+1 = partial
+2 = correct
+```
+
+本地先做 hard gate：
+
+- `parse`
+- `schema`
+- `protocol`
+
+任一失败：
+
+```text
+answer_level = 0
+quality_score = 0.0
+```
+
+通过 hard gate 后，由 judge 按三维给出：
+
+```text
+environment_level in {0, 1, 2}
+action_level in {0, 1, 2}
+args_level in {0, 1, 2}
+```
+
+辅助连续分固定为：
+
+```text
+quality_score =
+  (
+    0.5 * environment_level +
+    0.3 * action_level +
+    0.2 * args_level
+  ) / 2
+```
+
+最终等级：
+
+```text
+answer_level = 2  # 三个维度全为 2
+answer_level = 1  # 至少一个维度为 1，且没有维度为 0
+answer_level = 0  # hard gate 失败，或任一维度为 0
+```
+
+`semantic_pass` 固定为：
+
+```text
+semantic_pass = answer_level == 2
+```
+
+### 3.4 Paired Comparison
+
+`before / after` 按 `sample_id` 对齐。
+
+每条样本记录状态：
+
+```text
+transition = before_level -> after_level
+improved = after_level > before_level
+regressed = after_level < before_level
+fixed = before_level < 2 && after_level == 2
+lost = before_level == 2 && after_level < 2
+```
+
+主指标：
+
+- `level_2_rate_delta`
+- `mean_quality_score_delta`
+- `fixed_count`
+- `lost_count`
+- `regressed_count`
+- bucket-level regression
+
+默认准入线：
+
+- `parse / schema / protocol` 通过率不下降
+- `level_2_rate_delta >= 0.05`
+- `mean_quality_score_delta > 0`
+- `fixed_count > regressed_count`
+- `regressed_count <= 2`
+- 单个 bucket `regressed_count <= 1`
+
+详细协议见：
+
+- `src/task_router_graph_train/docs/grpo_ab_eval_v1.md`
+
+## 4. Badcase 回流
 
 badcase 来源：
 
@@ -119,7 +276,7 @@ badcase 的作用只有一个：
 
 固定 `holdout` 上失败的样本可以直接进入 `teacher_queue`。
 
-### 3.1 badcase 门槛
+### 4.1 badcase 门槛
 
 满足任一条件即可进入 `teacher_queue`：
 
@@ -144,7 +301,7 @@ badcase 的作用只有一个：
 - 不看 score 阈值
 - 进入 `teacher_queue` 后，再由 teacher 判断是否接纳进下一轮 `SFT`
 
-### 3.2 入队字段
+### 4.2 入队字段
 
 `teacher_queue` 里只保留 teacher 后续判断所需的信息：
 
@@ -158,7 +315,7 @@ badcase 的作用只有一个：
 - 可见 environment 签名
 - 当前 policy 输出骨架
 
-### 3.3 Teacher 标注
+### 4.3 Teacher 标注
 
 teacher 负责两件事：
 
@@ -203,7 +360,7 @@ teacher 未接纳的样本直接忽略。
 teacher_queue -> annotate_queue -> teacher_decisions -> sft_admissions
 ```
 
-### 3.4 回流
+### 4.4 回流
 
 teacher 接纳后，样本进入 `sft_admissions`。
 
