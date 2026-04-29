@@ -11,6 +11,24 @@
 3. `GRPO`
 4. `badcase -> teacher_queue -> annotate_queue -> sft_admissions -> next round SFT`
 
+## 候选演进
+
+当前正在评估一条 `GRPO / DPO` 交替链路：
+
+```text
+SFT -> GRPO -> DPO -> GRPO -> DPO -> ...
+```
+
+定位：
+
+- `SFT` 只作为 warm start
+- `GRPO` 负责 rollout / ranking / reward
+- `DPO` 负责吸收 `chosen / rejected` pair
+
+详细方案见：
+
+- `grpo_dpo_loop_v1.md`
+
 ## 数据真源与派生
 
 - frozen base: `assets/manual_protocol_v1/`
@@ -30,6 +48,7 @@
 ## 文档
 
 - `post_training_v1.md`
+- `grpo_dpo_loop_v1.md`
 - `controller_grpo_reward_spec.md`
 - `data_contract.md`
 - `manual_protocol_v1_draft.md`（手稿）

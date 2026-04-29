@@ -390,3 +390,25 @@ next_round_sft = manual_protocol_v1.sft + previous_round.sft_admissions
 ```text
 manual_protocol_v1 + promoted_sft_admissions -> manual_protocol_v2
 ```
+
+## 5. GRPO / DPO 候选演进
+
+当前主线仍以 `SFT -> GRPO -> badcase -> sft_admissions` 为正式实现。
+
+后续候选链路：
+
+```text
+SFT -> GRPO -> DPO -> GRPO -> DPO -> ...
+```
+
+核心变化：
+
+- `SFT` 只作为 warm start
+- `GRPO` 产生 on-policy candidates 和 teacher ranking
+- `DPO` 消费 `chosen / rejected` pair
+- badcase 主回流对象从 `sft_admissions` 调整为 `preference_admissions`
+- `sft_admissions` 收窄为协议修补和 manual protocol 晋升候选
+
+详细方案见：
+
+- `src/task_router_graph_train/docs/grpo_dpo_loop_v1.md`

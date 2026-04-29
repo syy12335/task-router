@@ -10,4 +10,8 @@
   - `sft_admissions.jsonl`
   - 以及该轮派生的 `sft_examples_*`、`controller_records_*`、`holdout_records.jsonl`
 
+候选 `GRPO / DPO` 链路会新增：
+
+- `preference_admissions.jsonl`
+
 其余历史资产目录已从主线移除。

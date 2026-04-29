@@ -11,6 +11,10 @@
 - `teacher_decisions`
 - `sft_admissions`
 
+候选 `GRPO / DPO` 链路另引入：
+
+- `preference_admissions`
+
 ## manual_protocol_v1
 
 位置：
@@ -99,6 +103,27 @@ current_sft_data = manual_protocol_v1.sft + previous_round.sft_admissions
 - `reference_action`
 - `reason`
 - `source_round`
+
+## 候选回流对象
+
+### preference_admissions
+
+最小字段：
+
+- `sample_id`
+- `state_input`
+- `chosen_response`
+- `rejected_response`
+- `reason`
+- `source_round`
+
+约定：
+
+- `chosen_response` 必须 schema-valid + protocol-valid
+- `chosen_response` 必须 grounded in 当前可见 environment
+- `rejected_response` 必须来自同一个 `state_input`
+- parse/schema/protocol 失败的 raw response 可以作为 rejected
+- 不使用 hidden state / verifier sidecar / only-track 细节构造 chosen
 
 ### teacher_decisions
 

@@ -67,5 +67,7 @@
    - 看 manual protocol、round manifest、teacher_queue、sft_admissions 的正式契约
 5. `src/task_router_graph_train/docs/controller_grpo_reward_spec.md`
    - 看 GRPO reward、hard gate 与 teacher ranking 的当前规则
-6. `src/task_router_graph_train/docs/post_training_v1.md`
+6. `src/task_router_graph_train/docs/grpo_dpo_loop_v1.md`
+   - 看 `SFT -> GRPO -> DPO` 候选演进方案
+7. `src/task_router_graph_train/docs/post_training_v1.md`
    - 最后看当前正式主线的闭环约束与后续演进边界

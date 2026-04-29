@@ -6,6 +6,8 @@ Environment-Runtime 是一个面向稳定、可复用工程流程的任务路由
 
 除运行时能力外，仓库还提供了面向 controller 的 SFT + GRPO 优化框架（含 badcase 回流与 round 资产主线），用于持续优化路由决策质量。当前正式训练链路已经收口为 `manual_protocol_v1 -> SFT -> GRPO -> teacher_queue / annotate_queue / sft_admissions`。这个训练链路的一个直接目标，是缓解小模型在长程任务里逐步偏离 `environment` 协议、忽略运行时状态事实的问题：先用 SFT 对齐 controller 的协议输入输出，再用 GRPO 持续把策略拉回到 environment-grounded 的决策方式。
 
+训练侧也在评估 `SFT -> GRPO -> DPO -> GRPO -> DPO` 候选链路，用 `preference_admissions` 保留 bad/gold pair，避免把 badcase 只压平成下一轮 SFT 样本。
+
 ---
 
 ## 为什么要分层
@@ -254,5 +256,6 @@ var/runs/                      # 运行输出
 - `docs/agent_memory.md`：memory 压缩与 environment 视图裁剪策略
 - `docs/environment.md`：environment 数据结构与 task / track 语义
 - `src/task_router_graph_train/README.md`：controller 的 environment-grounded SFT / GRPO 训练闭环
+- `src/task_router_graph_train/docs/grpo_dpo_loop_v1.md`：controller 的 GRPO / DPO 候选演进方案
 - `docs/data_format.md`：输入输出与样本格式
 - `docs/changelog.md`：近期更新

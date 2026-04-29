@@ -14,6 +14,7 @@
 - 当前轮次 GRPO 数据：仅来自 `manual_protocol_v1.sft` 派生的 `controller_records_*`
 - `holdout` 固定从 `manual_protocol_v1.split=holdout` 派生，且不进入训练
 - round 资产目录：`src/task_router_graph_train/assets/post_training/rounds/<round_id>/`
+- `GRPO / DPO` 交替链路仍是候选方案，未替代当前正式实现
 
 ## CLI
 
@@ -28,5 +29,6 @@
 - `docs/overview.md`
 - `docs/data_contract.md`
 - `docs/post_training_v1.md`
+- `docs/grpo_dpo_loop_v1.md`（GRPO / DPO 候选方案）
 - `docs/controller_grpo_reward_spec.md`
 - `docs/manual_protocol_v1_draft.md`（手稿，不作为主线入口）
