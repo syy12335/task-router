@@ -4,7 +4,7 @@ Environment-Runtime 是一个面向稳定、可复用工程流程的任务路由
 
 核心设计思路是按任务不确定性做双重截留：controller 一次截留 + executor pyskill 二次截留。`functest / accutest / perftest` 只是当前仓库的占位示例 task type，用于演示高确定性任务如何更早离开高成本路径；`skill / pyskill` 属于受约束的 agentic loop；仅将剩余高不确定性任务送入自由度最高的 executor loop。这个双重截留策略一方面显著降低 token 消耗，另一方面也能大幅减少幻觉；在高确定性任务占主导的场景下，经验消耗约为 OpenClaw 的 7%。
 
-除运行时能力外，仓库还提供了面向 controller 的后训练框架，用 `SFT warm start -> (GRPO online rollout -> DPO) -> (GRPO online rollout -> DPO) -> ...` 的循环持续优化路由决策质量。SFT 负责把 controller 拉到稳定的协议输入输出空间；每轮 GRPO 在当前 policy 上采样候选动作并暴露真实错误分布，teacher 将 gold answer / chosen response 和 bad output 组成 `preference_admissions`，再由 DPO 消费来更新 policy。
+除运行时能力外，仓库还提供了面向 controller 的后训练框架。当前已落地 `manual_protocol_v1 -> SFT -> GRPO -> holdout evaluate -> teacher_queue / annotate_queue / sft_admissions`，用于验证 environment-grounded 路由决策质量；下一阶段训练路线会转向 `SFT warm start -> (GRPO online rollout -> preference_admissions -> DPO) -> ...`，让 teacher 给出的更优 action 和当前 policy bad output 组成 `chosen / rejected` 偏好样本，再由 DPO 继续优化 controller。
 
 ---
 
@@ -177,7 +177,7 @@ python scripts/run/run_cases.py --config configs/graph.yaml --cases-dir /path/to
 - `docs/environment.md`：environment 数据结构与 task / track 语义
 - `docs/track.md`：track 写入链路、trace 暴露策略与 agent 间状态共享
 - `src/task_router_graph_train/README.md`：controller 的 environment-grounded 后训练闭环
-- `src/task_router_graph_train/docs/grpo_dpo_loop_v1.md`：controller 的 GRPO / DPO 候选演进方案
+- `src/task_router_graph_train/docs/grpo_dpo_loop_v1.md`：controller 的 GRPO / DPO 下一阶段方案
 - `docs/data_format.md`：输入输出与样本格式
 - `docs/changelog.md`：近期更新
 

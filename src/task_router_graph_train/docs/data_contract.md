@@ -2,7 +2,7 @@
 
 ## 正式对象
 
-当前主线只定义以下对象：
+当前代码已经落地以下对象：
 
 - `manual_protocol_v1`
 - `state_input`
@@ -14,6 +14,8 @@
 候选 `GRPO / DPO` 链路另引入：
 
 - `preference_admissions`
+
+`preference_admissions` 目前是下一阶段契约，不在 `prepare_round` 默认产物里，也没有对应 DPO CLI。
 
 ## manual_protocol_v1
 
@@ -61,11 +63,19 @@
 - `sft_admissions.jsonl`
 - `round_manifest.json`
 
+说明：
+
+- `teacher_queue.jsonl` 与 `sft_admissions.jsonl` 会由 `prepare_round` 初始化
+- `teacher_decisions.jsonl` 通常由 `annotate_queue` 生成后写入 manifest
+- `preference_admissions.jsonl` 尚未进入当前 round manifest
+
 ## SFT
 
 ```text
 current_sft_data = manual_protocol_v1.sft + previous_round.sft_admissions
 ```
+
+这是当前实现的可执行回流口径。下一阶段 DPO 链路落地后，`sft_admissions` 会收窄为协议修补和 manual protocol 晋升候选，不再作为 badcase 的默认主回流对象。
 
 ## GRPO
 
@@ -107,6 +117,8 @@ current_sft_data = manual_protocol_v1.sft + previous_round.sft_admissions
 ## 候选回流对象
 
 ### preference_admissions
+
+状态：下一阶段契约，尚未由当前 CLI 生成。
 
 最小字段：
 

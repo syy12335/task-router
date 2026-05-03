@@ -6,13 +6,13 @@
 
 | 日期 | 提交 | 主题 | 影响面 |
 |---|---|---|---|
-| 2026-04-29 | `a627a36` | docs(post-training): 同步 GRPO DPO 方案入口 | README、overview、data contract、post training、assets README、changelog 同步加入 `GRPO / DPO` 候选链路入口；`preference_admissions` 作为候选回流对象进入文档索引 |
-| 2026-04-29 | `ab89763` | docs(post-training): 增加 GRPO DPO 候选方案 | 新增 `grpo_dpo_loop_v1.md`，明确 `SFT warm start -> (GRPO online rollout -> DPO) -> ...` 的候选循环、pair schema、验收线和 stale preference 风险 |
-| 2026-04-28 | `3cf93fa` | docs(post-training): 增加 GRPO 前后评测协议 | 新增 `grpo_ab_eval_v1.md`，固定 holdout paired eval、三维评分、deterministic overrides、acceptance bar 与诊断 runbook |
+| 2026-04-29 | `a627a36` | docs(post-training): 同步 GRPO DPO 方案入口 | README、overview、data contract、post training、assets README、changelog 同步加入 `GRPO / DPO` 下一阶段链路入口；`preference_admissions` 作为候选回流对象进入文档索引 |
+| 2026-04-29 | `ab89763` | docs(post-training): 增加 GRPO DPO 候选方案 | 新增 `grpo_dpo_loop_v1.md`，明确 `SFT warm start -> (GRPO online rollout -> preference_admissions -> DPO) -> ...` 的目标循环、pair schema、验收线和 stale preference 风险 |
+| 2026-04-28 | `3cf93fa` | docs(post-training): 增加 GRPO 前后评测协议 | 新增 `grpo_ab_eval_v1.md`，定义固定 holdout paired eval、三维评分、deterministic overrides、acceptance bar 与诊断 runbook；当前实现尚未补齐 compare CLI |
 | 2026-04-28 | `b46c006` | docs: 更新 Environment-Runtime 仓库名 | README 与文档口径从旧名称统一切换到 Environment-Runtime |
 | 2026-04-28 | `33dfe51` | config: 切换阿里云默认模型 | 默认模型配置切回阿里云路径，降低本地 SGLang 不可用时的启动门槛 |
 | 2026-04-27 | `30995f8` | feat(post-training): 补齐 GRPO 诊断与 holdout 评测 | 后训练链路补齐 GRPO 诊断输出和固定 holdout 评测能力，为 checkpoint 前后对比打基础 |
-| 2026-04-27 | `18fc00f` | feat(post-training): 使用 GRPO checkpoint 评测 holdout | holdout 评测接入 GRPO checkpoint，开始支持 `SFT -> GRPO` 的真实 paired comparison |
+| 2026-04-27 | `18fc00f` | feat(post-training): 使用 GRPO checkpoint 评测 holdout | holdout 评测接入 GRPO checkpoint，支持直接评估 GRPO 后模型输出 |
 | 2026-04-27 | `925cae1` | fix(eval): 表格化 GRPO 与 holdout 诊断 | GRPO / holdout 诊断输出改为更可读的表格结构，方便定位 fixed / regressed / bucket 问题 |
 | 2026-04-27 | `27f6c0d` | fix(grpo): 收紧 KL 约束参数 | 调整 GRPO KL 约束，降低后训练阶段偏离 SFT 协议地基的风险 |
 | 2026-04-27 | `6431faa` | fix(grpo): 修复 SFT 策略接入与 reward 审计 | 修复 GRPO 使用 SFT policy 初始化与 reward audit 记录问题，保证后续诊断能回看 teacher ranking 与 reward 来源 |
@@ -63,10 +63,10 @@
 
 1. 训练闭环从“分散入口”收口到 manifest / round 资产主线。
 2. 当前已实现链路是 `manual_protocol_v1 -> SFT -> GRPO -> teacher_queue -> annotate_queue -> sft_admissions`。
-3. badcase 直接回流到下一轮 SFT 已被标记为过时方向；后续重点转向 `GRPO online rollout -> DPO` 循环，其中 teacher gold answer 与 bad output 会组成 `preference_admissions`。
-4. `GRPO / DPO` 候选方案已形成独立文档，核心是保留 `chosen / rejected` pair，而不是把 badcase 压平成单条 SFT reference。
+3. badcase 直接回流到下一轮 SFT 已被标记为过渡方向；后续重点转向 `GRPO online rollout -> preference_admissions -> DPO` 循环，其中 teacher gold answer 与 bad output 会组成偏好样本。
+4. `GRPO / DPO` 下一阶段方案已形成独立文档，核心是保留 `chosen / rejected` pair，而不是把 badcase 压平成单条 SFT reference。
 5. teacher 职责当前按正式链路收口为 reward ranking、holdout 语义判等与 badcase admission 三类评判；下一阶段会增加 gold answer / preference admission 口径。
-6. 固定 holdout paired evaluation 已补齐，主指标收口到 `level_2_rate_delta / mean_quality_score_delta / fixed_count / regressed_count / bucket-level regression`。
+6. 固定 holdout evaluation 已补齐单 checkpoint 评测和 GRPO 诊断；paired comparison 指标仍是目标协议，compare CLI 尚未落地。
 7. 训练、评测、CLI 报告中的路径统一脱敏成 repo-relative 形式。
 8. `TASKS_JSON -> ENVIRONMENT_JSON` 的输入命名迁移已经落地，训练态 state 与运行时 contract 更一致。
 9. 根 README 对外定位改成通用工程场景，`functest / accutest / perftest` 明确标为当前内置示例 task family。
@@ -81,13 +81,13 @@
 3. `src/task_router_graph_train/docs/overview.md`
    - 看训练闭环总图与输入输出约定
 4. `src/task_router_graph_train/docs/data_contract.md`
-   - 看 manual protocol、round manifest、teacher_queue、sft_admissions 的正式契约
+   - 看 manual protocol、round manifest、teacher_queue、sft_admissions 的当前契约，以及 preference admissions 的下一阶段契约
 5. `src/task_router_graph_train/docs/controller_grpo_reward_spec.md`
    - 看 GRPO reward、hard gate 与 teacher ranking 的当前规则
 6. `src/task_router_graph_train/docs/grpo_dpo_loop_v1.md`
-   - 看 `SFT -> GRPO -> DPO` 候选演进方案
+   - 看 `SFT -> GRPO -> DPO` 下一阶段方案
 7. `src/task_router_graph_train/docs/post_training_v1.md`
-   - 最后看当前正式主线的闭环约束与后续演进边界
+   - 最后看当前已实现链路、目标评测协议与 DPO 演进边界
 
 ## 下一步
 

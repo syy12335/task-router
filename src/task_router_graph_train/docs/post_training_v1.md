@@ -107,7 +107,10 @@ teacher 会给每个 candidate 输出：
 
 ## 3. GRPO 前后评测
 
-`GRPO` 前后效果对比使用固定 `holdout` 上的 paired evaluation。
+固定 `holdout` 评测分成两层：
+
+- 当前已实现：对单个 checkpoint 的 prediction 做 holdout evaluation，输出 `metrics_summary.json`、`run_manifest.json`、`evidence_rows.jsonl`
+- 目标协议：对 `before / after` 两组 prediction 做 paired comparison，计算 fixed / regressed / bucket-level regression
 
 对比对象：
 
@@ -164,7 +167,7 @@ max_tokens = 512
 
 ### 3.3 Scoring
 
-评测沿用 `GRPO` reward 的三维口径，但不做 group ranking。
+目标协议沿用 `GRPO` reward 的三维口径，但不做 group ranking。
 
 维度固定为：
 
@@ -226,6 +229,18 @@ answer_level = 0  # hard gate 失败，或任一维度为 0
 semantic_pass = answer_level == 2
 ```
 
+当前 `evaluate` CLI 使用 `regression_judge` 对 prediction 和 holdout gold 做语义判等，实际产物字段是：
+
+- `semantic_pass`
+- `semantic_score`
+- `parse_valid`
+- `schema_valid`
+- `protocol_valid`
+- `failure_reason`
+- `judge_reason`
+
+因此 `answer_level / quality_score / fixed_count / regressed_count` 仍属于 paired comparison 目标协议，不是当前 CLI 的直接输出。
+
 ### 3.4 Paired Comparison
 
 `before / after` 按 `sample_id` 对齐。
@@ -269,10 +284,12 @@ badcase 来源：
 - online output
 - fixed holdout output
 
-badcase 的作用只有一个：
+当前已实现的 badcase 作用是：
 
 - 进入 teacher 标注
-- 回流成下一轮 `SFT`
+- 通过 `sft_admissions` 回流成下一轮 `SFT` 增量
+
+这条链路仍可执行，但已不再是长期主回流方向。下一阶段会优先把 badcase 和 teacher 生成的更优 action 组成 `preference_admissions`，由 DPO 消费。
 
 固定 `holdout` 上失败的样本可以直接进入 `teacher_queue`。
 
@@ -299,7 +316,7 @@ badcase 的作用只有一个：
 
 - 每组只选最差的一名
 - 不看 score 阈值
-- 进入 `teacher_queue` 后，再由 teacher 判断是否接纳进下一轮 `SFT`
+- 进入 `teacher_queue` 后，当前实现由 teacher 判断是否接纳进 `sft_admissions`
 
 ### 4.2 入队字段
 
@@ -317,7 +334,7 @@ badcase 的作用只有一个：
 
 ### 4.3 Teacher 标注
 
-teacher 负责两件事：
+当前 `annotate_queue` 的 teacher 负责两件事：
 
 1. 判断样本是否接纳进下一轮 `SFT`
 2. 生成 `reference_action`
@@ -354,7 +371,7 @@ teacher 规则：
 
 teacher 未接纳的样本直接忽略。
 
-当前主链入口固定为：
+当前已实现入口为：
 
 ```text
 teacher_queue -> annotate_queue -> teacher_decisions -> sft_admissions
@@ -362,7 +379,7 @@ teacher_queue -> annotate_queue -> teacher_decisions -> sft_admissions
 
 ### 4.4 回流
 
-teacher 接纳后，样本进入 `sft_admissions`。
+teacher 接纳后，样本进入 `sft_admissions`。这是当前代码路径，不代表后续 preference/DPO 链路已经落地。
 
 进入条件：
 
@@ -372,7 +389,7 @@ teacher 接纳后，样本进入 `sft_admissions`。
 - teacher 理由清晰
 - 与现有训练样本不高度重复
 
-下一轮训练时：
+当前实现的下一轮训练时：
 
 ```text
 next_round_sft = manual_protocol_v1.sft + previous_round.sft_admissions
@@ -393,9 +410,9 @@ manual_protocol_v1 + promoted_sft_admissions -> manual_protocol_v2
 
 ## 5. GRPO / DPO 候选演进
 
-当前主线仍以 `SFT -> GRPO -> badcase -> sft_admissions` 为正式实现。
+当前代码仍以 `SFT -> GRPO -> badcase -> sft_admissions` 为已实现链路；这条链路已经被标记为过渡形态，因为它会丢掉 rejected output。
 
-后续候选链路：
+下一阶段目标链路：
 
 ```text
 SFT -> GRPO -> DPO -> GRPO -> DPO -> ...
@@ -408,6 +425,12 @@ SFT -> GRPO -> DPO -> GRPO -> DPO -> ...
 - `DPO` 消费 `chosen / rejected` pair
 - badcase 主回流对象从 `sft_admissions` 调整为 `preference_admissions`
 - `sft_admissions` 收窄为协议修补和 manual protocol 晋升候选
+
+落地状态：
+
+- `preference_admissions` 已有文档契约
+- DPO 依赖已在 `requirements-post-training.txt` 预留
+- 当前还没有 `train_dpo` CLI，也没有 round manifest 中的 `preference_admissions` 默认资产
 
 详细方案见：
 

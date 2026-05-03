@@ -4,6 +4,11 @@
 
 controller `GRPO` 前后效果对比使用固定 holdout 上的 paired evaluation。
 
+实现状态：
+
+- 已实现：生成 holdout predictions、对单个 checkpoint 运行 `evaluate`，输出 `metrics_summary.json`、`run_manifest.json`、`evidence_rows.jsonl`
+- 未实现：`compare_eval` CLI 和下文的 paired comparison 汇总产物
+
 对比对象：
 
 - `before`: `SFT` checkpoint
@@ -130,7 +135,9 @@ controller action 只有两类：
 
 ## Scoring Pipeline
 
-每条 prediction 使用 `GRPO` reward 的三维标准做绝对评分。
+目标协议中，每条 prediction 使用 `GRPO` reward 的三维标准做绝对评分。
+
+当前 `task_router_graph_train.cli.evaluate` 的实际实现更窄：它先做 parse/schema/protocol hard gate，再调用 `regression_judge` 判断 prediction 与 holdout `gold_action` 是否语义等价。当前输出不包含 `environment_level / action_level / args_level / answer_level / quality_score`。
 
 固定维度：
 
@@ -755,6 +762,8 @@ failure_reason
 
 ## Acceptance Bar
 
+当前代码还没有自动 paired comparison，因此下面准入线是人工对齐两次 `evaluate` 结果时的目标口径。
+
 默认准入线：
 
 - `after_parse_valid_rate >= before_parse_valid_rate`
@@ -773,6 +782,14 @@ failure_reason
 - every bucket with negative `delta_count`
 
 ## Diagnostics
+
+当前可直接使用的诊断产物：
+
+- `evaluate` 输出的 `metrics_summary.json`、`run_manifest.json`、`evidence_rows.jsonl`
+- GRPO runbook 输出的 `grpo_step_metrics.jsonl`、`grpo_reward_audit_summary.json`、`grpo_diagnostics.json`
+- notebook 渲染的 holdout evaluation summary 和 GRPO score 曲线
+
+下面的 paired regression/bucket 诊断仍是目标协议，依赖后续补齐 compare 阶段。
 
 ### Structural Regression
 
@@ -834,7 +851,18 @@ failure_reason
 
 ## Artifacts
 
-推荐输出：
+当前已实现输出：
+
+```text
+metrics_summary.json
+run_manifest.json
+evidence_rows.jsonl
+grpo_step_metrics.jsonl
+grpo_reward_audit_summary.json
+grpo_diagnostics.json
+```
+
+paired comparison 目标输出：
 
 ```text
 comparison_summary.json
@@ -846,6 +874,8 @@ report.html
 ```
 
 ## Runbook
+
+推荐优先使用 `scripts/post_training/controller_post_training_run.ipynb`，它会按配置执行 prepare/SFT/GRPO/holdout/evaluate/annotate_queue，并渲染当前已实现的诊断图表。
 
 ### 1. Generate Before Predictions
 
@@ -901,9 +931,10 @@ python -m task_router_graph_train.cli.evaluate \
 
 ### 5. Compare
 
-```bash
-python -m task_router_graph_train.cli.compare_eval \
-  --before var/runs/task_router_graph_train/eval/round_0001_before_sft/evidence_rows.jsonl \
-  --after var/runs/task_router_graph_train/eval/round_0001_after_grpo/evidence_rows.jsonl \
-  --output-dir var/runs/task_router_graph_train/eval/round_0001_grpo_ab
-```
+当前仓库没有 `task_router_graph_train.cli.compare_eval`。需要比较前后 checkpoint 时，先人工对齐两份 `evidence_rows.jsonl` 的 `sample_id`，重点看：
+
+- `semantic_pass_rate`、`parse_valid_rate`、`schema_valid_rate`、`protocol_valid_rate` 是否下降
+- after 新增失败样本的 `failure_reason` 与 `judge_reason`
+- GRPO 侧 `reward_audit.jsonl` 和 `grpo_reward_audit_summary.json` 是否出现 hard gate 或 teacher format 异常
+
+后续补齐 compare CLI 后，再生成本文件上面定义的 `comparison_summary.json / bucket_summary.json / paired_rows.jsonl`。
